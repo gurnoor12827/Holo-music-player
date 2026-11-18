@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:minHeight="58dp"
+    android:orientation="horizontal"
+    android:paddingEnd="14dp"
+    android:paddingStart="0dp">
+
+    <!-- 4dp Holo Blue Light (#33B5E5) active song indicator bar -->
+    <View
+        android:id="@+id/view_playing_indicator"
+        android:layout_width="4dp"
+        android:layout_height="match_parent"
+        android:background="@color/holo_blue_light"
+        android:visibility="invisible" />
+
+    <!-- Active row status icon using built-in Android SDK media drawables -->
+    <ImageView
+        android:id="@+id/iv_row_status"
+        android:layout_width="22dp"
+        android:layout_height="22dp"
+        android:layout_marginStart="10dp"
+        android:contentDescription="@string/holo_cd_playing_state"
+        android:scaleType="centerInside"
+        android:src="@android:drawable/ic_media_play"
+        android:visibility="gone" />
+
+    <!-- Track Title and Artist -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:layout_marginEnd="10dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@+id/tv_item_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:textColor="@color/holo_text_primary"
+            android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/tv_item_artist"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:textColor="@color/holo_text_secondary"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <!-- Formatted Track Duration -->
+    <TextView
+        android:id="@+id/tv_item_duration"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="@color/holo_text_dim"
+        android:textSize="12sp"
+        android:typeface="monospace" />
+
+</LinearLayout>

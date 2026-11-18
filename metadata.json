@@ -1,0 +1,6 @@
+{
+  "name": "Holo Music Player",
+  "description": "Authentic Android 4.4 KitKat Holo native local music player written in Java with XML layouts, MediaStore audio scanning, Action Bar tabs, and MediaPlayer controls.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

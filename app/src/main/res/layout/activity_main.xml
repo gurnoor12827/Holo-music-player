@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root_layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/holo_bg_black"
+    android:orientation="vertical">
+
+    <!-- Classic Holo Blue Dark (#0099CC) 2dp Action Bar bottom accent rule -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:background="@color/holo_blue_dark" />
+
+    <!-- Holo Section Summary Strip -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="30dp"
+        android:background="@color/holo_subheader_bg"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp">
+
+        <TextView
+            android:id="@+id/tv_section_header"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:text="@string/holo_header_all_songs"
+            android:textColor="@color/holo_blue_light"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tv_track_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/holo_zero_tracks"
+            android:textColor="@color/holo_text_secondary"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <!-- Thin 1dp #33FFFFFF Holo divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/holo_divider" />
+
+    <!-- Main Track List Container -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <ListView
+            android:id="@+id/list_songs"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:cacheColorHint="#00000000"
+            android:divider="@color/holo_divider"
+            android:dividerHeight="1dp"
+            android:fastScrollEnabled="true"
+            android:scrollbarStyle="outsideOverlay" />
+
+        <!-- Empty / Permission State View -->
+        <LinearLayout
+            android:id="@+id/empty_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="28dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tv_empty_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="@string/holo_empty_title"
+                android:textColor="@color/holo_text_primary"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_empty_message"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:lineSpacingExtra="2dp"
+                android:text="@string/holo_empty_message"
+                android:textColor="@color/holo_text_secondary"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/btn_empty_action"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:text="@string/holo_btn_scan"
+                android:textColor="@color/holo_blue_light"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- Docked Holo Bottom Playback Bar -->
+    <LinearLayout
+        android:id="@+id/bottom_playback_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/holo_surface_dark"
+        android:orientation="vertical">
+
+        <!-- Signature 2dp Holo Blue Light (#33B5E5) top accent border -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="2dp"
+            android:background="@color/holo_blue_light" />
+
+        <!-- Now Playing Metadata -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="14dp"
+            android:paddingTop="10dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="2dp">
+
+            <TextView
+                android:id="@+id/tv_now_playing_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="marquee"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:marqueeRepeatLimit="marquee_forever"
+                android:scrollHorizontally="true"
+                android:singleLine="true"
+                android:text="@string/holo_idle_title"
+                android:textColor="@color/holo_text_primary"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_now_playing_artist"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:text="@string/holo_idle_artist"
+                android:textColor="@color/holo_blue_light"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- Holo SeekBar with Elapsed & Total Duration -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="14dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="6dp">
+
+            <TextView
+                android:id="@+id/tv_elapsed_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="38dp"
+                android:text="@string/holo_zero_time"
+                android:textColor="@color/holo_blue_light"
+                android:textSize="12sp"
+                android:typeface="monospace" />
+
+            <SeekBar
+                android:id="@+id/seek_bar"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:layout_marginEnd="6dp"
+                android:layout_weight="1"
+                android:max="1000"
+                android:progress="0" />
+
+            <TextView
+                android:id="@+id/tv_total_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:minWidth="38dp"
+                android:text="@string/holo_zero_time"
+                android:textColor="@color/holo_text_secondary"
+                android:textSize="12sp"
+                android:typeface="monospace" />
+        </LinearLayout>
+
+        <!-- Thin 1dp #33FFFFFF divider above segmented Holo button bar -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/holo_divider" />
+
+        <!-- Segmented Holo Media Transport Controls using strictly SDK icons -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/btn_previous"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="?android:attr/selectableItemBackground"
+                android:contentDescription="@string/holo_cd_previous"
+                android:scaleType="centerInside"
+                android:src="@android:drawable/ic_media_previous" />
+
+            <View
+                android:layout_width="1dp"
+                android:layout_height="28dp"
+                android:background="@color/holo_divider" />
+
+            <ImageButton
+                android:id="@+id/btn_play_pause"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="?android:attr/selectableItemBackground"
+                android:contentDescription="@string/holo_cd_play_pause"
+                android:scaleType="centerInside"
+                android:src="@android:drawable/ic_media_play" />
+
+            <View
+                android:layout_width="1dp"
+                android:layout_height="28dp"
+                android:background="@color/holo_divider" />
+
+            <ImageButton
+                android:id="@+id/btn_next"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="?android:attr/selectableItemBackground"
+                android:contentDescription="@string/holo_cd_next"
+                android:scaleType="centerInside"
+                android:src="@android:drawable/ic_media_next" />
+        </LinearLayout>
+    </LinearLayout>
+
+</LinearLayout>

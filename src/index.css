@@ -1,0 +1,214 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Hanken Grotesk", sans-serif;
+  --font-mono: "Source Code Pro", monospace;
+  --color-holo-blue: #33B5E5;
+  --color-holo-blue-dark: #0099CC;
+}
+
+@layer base {
+  html {
+    font-synthesis-weight: none;
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    background: #000000;
+    color: #ffffff;
+    font-family: var(--font-sans);
+  }
+}
+
+/* Authentic Android 4.1–4.4 Holo Dark Surfaces */
+.holo-bg-gradient {
+  background: linear-gradient(180deg, #000000 0%, #0b1015 38%, #181f26 78%, #222930 100%);
+}
+
+.holo-actionbar-surface {
+  background: linear-gradient(180deg, #2c2c2c 0%, #1a1a1a 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 2px 6px rgba(0, 0, 0, 0.65);
+}
+
+.holo-tabbar-surface {
+  background: linear-gradient(180deg, #242424 0%, #161616 100%);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(51, 181, 229, 0.45);
+}
+
+.holo-subheader-surface {
+  background: linear-gradient(180deg, rgba(24, 30, 36, 0.92) 0%, rgba(14, 18, 22, 0.95) 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.holo-dock-surface {
+  background: linear-gradient(180deg, #24292e 0%, #161a1e 55%, #101316 100%);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.75);
+}
+
+.holo-dialog-surface {
+  background: linear-gradient(180deg, #282c30 0%, #181b1f 100%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+/* Classic Holo Beveled Dark Gray Buttons */
+.holo-btn {
+  background: linear-gradient(180deg, #3a3a3a 0%, #242424 100%);
+  border: 1px solid #0d0d0d;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 1px 2px rgba(0, 0, 0, 0.65);
+  transition: background 120ms ease-out, box-shadow 120ms ease-out, border-color 120ms ease-out;
+}
+
+.holo-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #43484d 0%, #2a2f34 100%);
+  border-color: rgba(51, 181, 229, 0.45);
+}
+
+.holo-btn:active:not(:disabled) {
+  background: linear-gradient(180deg, #007aa3 0%, #005c7a 100%);
+  border-color: #33b5e5;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 0 10px rgba(51, 181, 229, 0.55);
+}
+
+.holo-btn-primary {
+  background: linear-gradient(180deg, #2d87a8 0%, #145b75 100%);
+  border: 1px solid #0a3444;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 0 10px rgba(51, 181, 229, 0.28);
+  transition: filter 120ms ease-out, box-shadow 120ms ease-out;
+}
+
+.holo-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 0 14px rgba(51, 181, 229, 0.45);
+}
+
+.holo-btn-primary:active:not(:disabled) {
+  background: linear-gradient(180deg, #33b5e5 0%, #0099cc 100%);
+  box-shadow: 0 0 16px rgba(51, 181, 229, 0.75);
+}
+
+.holo-list-row {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  transition: background-color 120ms ease-out;
+}
+
+.holo-list-row:hover {
+  background-color: rgba(51, 181, 229, 0.08);
+}
+
+.holo-list-row-active {
+  background: linear-gradient(90deg, rgba(51, 181, 229, 0.2) 0%, rgba(51, 181, 229, 0.06) 100%);
+  border-bottom: 1px solid rgba(51, 181, 229, 0.25);
+}
+
+.holo-tab-active-glow {
+  box-shadow: 0 0 8px rgba(51, 181, 229, 0.85);
+}
+
+/* Custom Holo Dark Scrollbar */
+.holo-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.holo-scroll::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.holo-scroll::-webkit-scrollbar-thumb {
+  background: rgba(51, 181, 229, 0.4);
+}
+
+.holo-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(51, 181, 229, 0.75);
+}
+
+/* Authentic Holo SeekBar Input */
+.holo-seekbar {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 32px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.holo-seekbar:focus {
+  outline: none;
+}
+
+.holo-seekbar::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 1px;
+  background: linear-gradient(
+    90deg,
+    var(--seek-color, #33b5e5) var(--seek-pct, 0%),
+    rgba(255, 255, 255, 0.2) var(--seek-pct, 0%)
+  );
+}
+
+.holo-seekbar::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5.5px;
+  border-radius: 9999px;
+  background: #33b5e5;
+  border: 1px solid #8ae0ff;
+  box-shadow:
+    0 0 0 6px rgba(51, 181, 229, 0.3),
+    0 0 8px rgba(51, 181, 229, 0.75);
+  transition: box-shadow 120ms ease-out, transform 120ms ease-out;
+}
+
+.holo-seekbar:hover::-webkit-slider-thumb,
+.holo-seekbar:active::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 9px rgba(51, 181, 229, 0.36),
+    0 0 12px rgba(51, 181, 229, 0.95);
+  transform: scale(1.08);
+}
+
+.holo-seekbar::-moz-range-track {
+  height: 3px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.holo-seekbar::-moz-range-progress {
+  height: 3px;
+  background: #33b5e5;
+}
+
+.holo-seekbar::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: #33b5e5;
+  border: 1px solid #8ae0ff;
+  box-shadow:
+    0 0 0 6px rgba(51, 181, 229, 0.3),
+    0 0 8px rgba(51, 181, 229, 0.75);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *:not(.animate-spin):not(.animate-pulse),
+  *:not(.animate-spin):not(.animate-pulse)::before,
+  *:not(.animate-spin):not(.animate-pulse)::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Authentic Android 4.4 (KitKat) Holo Color Palette -->
+    <color name="holo_blue_light">#33B5E5</color>
+    <color name="holo_blue_dark">#0099CC</color>
+    <color name="holo_divider">#33FFFFFF</color>
+    <color name="holo_bg_black">#000000</color>
+    <color name="holo_subheader_bg">#121212</color>
+    <color name="holo_surface_dark">#181818</color>
+    <color name="holo_actionbar_bg">#222222</color>
+    <color name="holo_tabbar_bg">#161616</color>
+    <color name="holo_text_primary">#FFFFFF</color>
+    <color name="holo_text_secondary">#B3FFFFFF</color>
+    <color name="holo_text_dim">#80FFFFFF</color>
+
+    <!-- UI Strings bundled in styles.xml for self-contained pasting -->
+    <string name="holo_header_all_songs">ALL LOCAL TRACKS</string>
+    <string name="holo_zero_tracks">0 TRACKS</string>
+    <string name="holo_empty_title">No Local Audio Tracks</string>
+    <string name="holo_empty_message">Grant audio storage access or place MP3, M4A, WAV, or FLAC music files on your device.</string>
+    <string name="holo_btn_scan">SCAN LOCAL AUDIO</string>
+    <string name="holo_idle_title">Select a track to play</string>
+    <string name="holo_idle_artist">KitKat Holo Local Music Player</string>
+    <string name="holo_zero_time">0:00</string>
+    <string name="holo_cd_previous">Previous track</string>
+    <string name="holo_cd_play_pause">Play or pause</string>
+    <string name="holo_cd_next">Next track</string>
+    <string name="holo_cd_playing_state">Playback status</string>
+
+    <!-- Base application theme inheriting directly from @android:style/Theme.Holo -->
+    <style name="AppTheme" parent="@android:style/Theme.Holo">
+        <item name="android:windowBackground">@color/holo_bg_black</item>
+        <item name="android:colorBackground">@color/holo_bg_black</item>
+        <item name="android:actionBarStyle">@style/HoloActionBar</item>
+        <item name="android:actionBarTabStyle">@style/HoloActionBarTab</item>
+        <item name="android:actionBarTabBarStyle">@style/HoloActionBarTabBar</item>
+        <item name="android:actionBarTabTextStyle">@style/HoloActionBarTabText</item>
+        <item name="android:actionBarDivider">@color/holo_divider</item>
+        <item name="android:listDivider">@color/holo_divider</item>
+        <item name="android:textColorHighlight">@color/holo_blue_dark</item>
+        <item name="android:statusBarColor">@color/holo_bg_black</item>
+        <item name="android:navigationBarColor">@color/holo_bg_black</item>
+        <item name="android:colorAccent">@color/holo_blue_light</item>
+    </style>
+
+    <!-- Classic Holo Solid Action Bar -->
+    <style name="HoloActionBar" parent="@android:style/Widget.Holo.ActionBar.Solid">
+        <item name="android:background">@color/holo_actionbar_bg</item>
+        <item name="android:backgroundStacked">@color/holo_tabbar_bg</item>
+        <item name="android:backgroundSplit">@color/holo_actionbar_bg</item>
+        <item name="android:titleTextStyle">@style/HoloActionBarTitle</item>
+        <item name="android:subtitleTextStyle">@style/HoloActionBarSubtitle</item>
+        <item name="android:displayOptions">showHome|showTitle</item>
+    </style>
+
+    <style name="HoloActionBarTitle" parent="@android:style/TextAppearance.Holo.Widget.ActionBar.Title">
+        <item name="android:textColor">@color/holo_blue_light</item>
+    </style>
+
+    <style name="HoloActionBarSubtitle" parent="@android:style/TextAppearance.Holo.Widget.ActionBar.Subtitle">
+        <item name="android:textColor">@color/holo_text_secondary</item>
+    </style>
+
+    <!-- Classic Holo Action Bar Tabs -->
+    <style name="HoloActionBarTab" parent="@android:style/Widget.Holo.ActionBar.TabView">
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
+    </style>
+
+    <style name="HoloActionBarTabBar" parent="@android:style/Widget.Holo.ActionBar.TabBar">
+        <item name="android:showDividers">middle</item>
+        <item name="android:dividerPadding">10dp</item>
+    </style>
+
+    <style name="HoloActionBarTabText" parent="@android:style/Widget.Holo.ActionBar.TabText">
+        <item name="android:textColor">@color/holo_text_primary</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+</resources>
