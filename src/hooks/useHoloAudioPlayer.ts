@@ -378,6 +378,18 @@ export function useHoloAudioPlayer({ equalizer }: UseHoloAudioPlayerOptions) {
     }
   }, [currentTrack, playNext, playPrevious, togglePlayPause]);
 
+  const updateTracksArtwork = useCallback(
+    (targetTrackIds: Set<string>, artworkDataUrl: string | null) => {
+      setQueue((prev) =>
+        prev.map((t) => (targetTrackIds.has(t.id) ? { ...t, artworkDataUrl } : t))
+      );
+      setCurrentTrack((prev) =>
+        prev && targetTrackIds.has(prev.id) ? { ...prev, artworkDataUrl } : prev
+      );
+    },
+    []
+  );
+
   const cycleRepeat = useCallback(() => {
     setRepeat((prev) => (prev === 'off' ? 'all' : prev === 'all' ? 'one' : 'off'));
   }, []);
@@ -404,5 +416,6 @@ export function useHoloAudioPlayer({ equalizer }: UseHoloAudioPlayerOptions) {
     stopIfTrackRemoved,
     clearPlayback,
     ensureWebAudioGraph,
+    updateTracksArtwork,
   };
 }

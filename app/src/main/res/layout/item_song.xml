@@ -19,20 +19,31 @@
     <!-- Active row status icon using built-in Android SDK media drawables -->
     <ImageView
         android:id="@+id/iv_row_status"
-        android:layout_width="22dp"
-        android:layout_height="22dp"
-        android:layout_marginStart="10dp"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_marginStart="8dp"
         android:contentDescription="@string/holo_cd_playing_state"
         android:scaleType="centerInside"
         android:src="@android:drawable/ic_media_play"
         android:visibility="gone" />
+
+    <!-- Track Album Art Thumbnail -->
+    <ImageView
+        android:id="@+id/iv_item_art"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_marginStart="10dp"
+        android:background="#12171D"
+        android:contentDescription="@string/holo_cd_album_art"
+        android:scaleType="centerInside"
+        android:src="@android:drawable/ic_media_play" />
 
     <!-- Track Title and Artist -->
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginStart="10dp"
-        android:layout_marginEnd="10dp"
+        android:layout_marginEnd="6dp"
         android:layout_weight="1"
         android:orientation="vertical"
         android:paddingTop="8dp"
@@ -63,8 +74,21 @@
         android:id="@+id/tv_item_duration"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginEnd="4dp"
         android:textColor="@color/holo_text_dim"
         android:textSize="12sp"
         android:typeface="monospace" />
+
+    <!-- Manual Album Art Edit Action (focusable=false so ListView row clicks still work) -->
+    <ImageButton
+        android:id="@+id/btn_item_edit_art"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:background="?android:attr/selectableItemBackground"
+        android:contentDescription="@string/holo_cd_edit_art"
+        android:focusable="false"
+        android:focusableInTouchMode="false"
+        android:scaleType="centerInside"
+        android:src="@android:drawable/ic_menu_gallery" />
 
 </LinearLayout>

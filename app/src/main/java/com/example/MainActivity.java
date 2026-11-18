@@ -14,10 +14,12 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.graphics.Bitmap;
 import android.graphics.Insets;
 import android.graphics.PorterDuff;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.LayerDrawable;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
@@ -30,6 +32,11 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.MediaStore;
 import android.provider.Settings;
+import android.text.Editable;
+import android.text.TextWatcher;
+import android.util.LruCache;
+import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -39,9 +46,13 @@ import android.view.WindowInsets;
 import android.widget.AdapterView;
 import android.widget.BaseAdapter;
 import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.ScrollView;
 import android.widget.SearchView;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -62,6 +73,7 @@ import java.util.concurrent.Executors;
 public class MainActivity extends Activity {
 
     private static final int REQUEST_PERMISSION_AUDIO = 1001;
+    private static final int REQUEST_PICK_ALBUM_ART = 1002;
 
     private static final int HOLO_BLUE_LIGHT = 0xFF33B5E5;
     private static final int HOLO_BLUE_DARK = 0xFF0099CC;
@@ -89,13 +101,15 @@ public class MainActivity extends Activity {
         final long id;
         final String title;
         final String artist;
+        final String album;
         final long durationMs;
         final long dateAddedSec;
 
-        Song(long id, String title, String artist, long durationMs, long dateAddedSec) {
+        Song(long id, String title, String artist, String album, long durationMs, long dateAddedSec) {
             this.id = id;
             this.title = title;
             this.artist = artist;
+            this.album = album;
             this.durationMs = durationMs;
             this.dateAddedSec = dateAddedSec;
         }
@@ -105,6 +119,17 @@ public class MainActivity extends Activity {
     private final List<Song> displayedSongs = new ArrayList<>();
     private final Set<Long> favoriteSongIds = new HashSet<>();
 
+    private final LruCache<Long, Bitmap> artThumbCache = new LruCache<Long, Bitmap>(4 * 1024 * 1024) {
+        @Override
+        protected int sizeOf(Long key, Bitmap value) {
+            return value != null ? value.getByteCount() : 0;
+        }
+    };
+    private final Set<Long> artLoadInFlight = new HashSet<>();
+    private final Set<Long> noArtSongIds = new HashSet<>();
+    private final Set<Long> corruptedArtSongIds = new HashSet<>();
+    private final Set<Long> customArtSongIds = new HashSet<>();
+
     private ListView listSongs;
     private View emptyView;
     private TextView tvEmptyTitle;
@@ -113,6 +138,8 @@ public class MainActivity extends Activity {
     private TextView tvSectionHeader;
     private TextView tvTrackCount;
 
+    private ImageView ivNowPlayingArt;
+    private ImageButton btnEditAlbumArt;
     private TextView tvNowPlayingTitle;
     private TextView tvNowPlayingArtist;
     private TextView tvElapsedTime;
@@ -129,6 +156,11 @@ public class MainActivity extends Activity {
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService artExecutor = Executors.newFixedThreadPool(2);
+
+    private ImageView activeArtPreviewView;
+    private Bitmap activeArtPreviewBitmap;
+    private TextView activeArtStatusText;
 
     private long currentSongId = -1L;
     private int currentPlaylistIndex = -1;
@@ -261,6 +293,8 @@ public class MainActivity extends Activity {
         tvSectionHeader = findViewById(R.id.tv_section_header);
         tvTrackCount = findViewById(R.id.tv_track_count);
 
+        ivNowPlayingArt = findViewById(R.id.iv_now_playing_art);
+        btnEditAlbumArt = findViewById(R.id.btn_edit_album_art);
         tvNowPlayingTitle = findViewById(R.id.tv_now_playing_title);
         tvNowPlayingArtist = findViewById(R.id.tv_now_playing_artist);
         tvElapsedTime = findViewById(R.id.tv_elapsed_time);
@@ -301,6 +335,8 @@ public class MainActivity extends Activity {
         tintTransportButton(btnPrevious, HOLO_TEXT_PRIMARY);
         tintTransportButton(btnPlayPause, HOLO_BLUE_LIGHT);
         tintTransportButton(btnNext, HOLO_TEXT_PRIMARY);
+        tintTransportButton(btnEditAlbumArt, HOLO_BLUE_LIGHT);
+        updateNowPlayingArtworkView(currentSongId);
     }
 
     private void tintTransportButton(ImageButton button, int argbColor) {
@@ -374,23 +410,28 @@ public class MainActivity extends Activity {
                 if (position < 0 || position >= displayedSongs.size()) {
                     return false;
                 }
-                Song target = displayedSongs.get(position);
-                if (favoriteSongIds.contains(target.id)) {
-                    favoriteSongIds.remove(target.id);
-                    Toast.makeText(MainActivity.this,
-                            "Removed from Favorites: " + target.title,
-                            Toast.LENGTH_SHORT).show();
-                } else {
-                    favoriteSongIds.add(target.id);
-                    Toast.makeText(MainActivity.this,
-                            "Added to Favorites: " + target.title,
-                            Toast.LENGTH_SHORT).show();
-                }
-                saveFavoriteIds();
-                applyFiltersAndSort();
+                showTrackActionsDialog(displayedSongs.get(position), position);
                 return true;
             }
         });
+
+        View.OnClickListener editCurrentArtClick = new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Song current = findSongById(currentSongId);
+                if (current != null) {
+                    showAlbumArtEditorDialog(current);
+                } else if (!displayedSongs.isEmpty()) {
+                    showAlbumArtEditorDialog(displayedSongs.get(0));
+                } else {
+                    Toast.makeText(MainActivity.this,
+                            "Scan or select a song first to edit its album art.",
+                            Toast.LENGTH_SHORT).show();
+                }
+            }
+        };
+        ivNowPlayingArt.setOnClickListener(editCurrentArtClick);
+        btnEditAlbumArt.setOnClickListener(editCurrentArtClick);
 
         btnPlayPause.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -642,6 +683,7 @@ public class MainActivity extends Activity {
                 MediaStore.Audio.Media._ID,
                 MediaStore.Audio.Media.TITLE,
                 MediaStore.Audio.Media.ARTIST,
+                MediaStore.Audio.Media.ALBUM,
                 MediaStore.Audio.Media.DURATION,
                 MediaStore.Audio.Media.DATE_ADDED
         };
@@ -659,6 +701,7 @@ public class MainActivity extends Activity {
                 int idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID);
                 int titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE);
                 int artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST);
+                int albumCol = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM);
                 int durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION);
                 int dateCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED);
 
@@ -666,6 +709,7 @@ public class MainActivity extends Activity {
                     long id = cursor.getLong(idCol);
                     String rawTitle = cursor.getString(titleCol);
                     String rawArtist = cursor.getString(artistCol);
+                    String rawAlbum = albumCol >= 0 ? cursor.getString(albumCol) : null;
                     long durationMs = cursor.getLong(durationCol);
                     long dateAdded = cursor.getLong(dateCol);
 
@@ -681,8 +725,13 @@ public class MainActivity extends Activity {
                             || "<unknown>".equalsIgnoreCase(rawArtist.trim()))
                             ? "Unknown Artist"
                             : rawArtist.trim();
+                    String cleanAlbum = (rawAlbum == null
+                            || rawAlbum.trim().isEmpty()
+                            || "<unknown>".equalsIgnoreCase(rawAlbum.trim()))
+                            ? "Local Library"
+                            : rawAlbum.trim();
 
-                    list.add(new Song(id, cleanTitle, cleanArtist, durationMs, dateAdded));
+                    list.add(new Song(id, cleanTitle, cleanArtist, cleanAlbum, durationMs, dateAdded));
                 }
             }
         } catch (SecurityException ignored) {
@@ -858,11 +907,12 @@ public class MainActivity extends Activity {
         currentSongId = song.id;
 
         tvNowPlayingTitle.setText(song.title);
-        tvNowPlayingArtist.setText(song.artist);
+        tvNowPlayingArtist.setText(song.artist + " · " + song.album);
         tvElapsedTime.setText("0:00");
         tvTotalTime.setText(formatDuration(song.durationMs));
         seekBar.setMax((int) Math.max(song.durationMs, 1000L));
         seekBar.setProgress(0);
+        updateNowPlayingArtworkView(song.id);
 
         Uri trackUri = ContentUris.withAppendedId(
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, song.id);
@@ -1099,6 +1149,8 @@ public class MainActivity extends Activity {
         super.onDestroy();
         uiHandler.removeCallbacksAndMessages(null);
         queryExecutor.shutdownNow();
+        artExecutor.shutdownNow();
+        artThumbCache.evictAll();
         abandonAudioFocus();
         if (mediaPlayer != null) {
             try {
@@ -1110,6 +1162,641 @@ public class MainActivity extends Activity {
             mediaPlayer.release();
             mediaPlayer = null;
         }
+    }
+
+    private Song findSongById(long songId) {
+        if (songId == -1L) {
+            return null;
+        }
+        for (Song s : allSongs) {
+            if (s.id == songId) {
+                return s;
+            }
+        }
+        return null;
+    }
+
+    private void showTrackActionsDialog(final Song target, final int position) {
+        final boolean isFav = favoriteSongIds.contains(target.id);
+        final String[] options = new String[]{
+                "Play Track",
+                isFav ? "Remove from Favorites" : "Add to Favorites",
+                "Edit / Generate Album Art"
+        };
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this, AlertDialog.THEME_HOLO_DARK);
+        builder.setTitle(target.title);
+        builder.setItems(options, new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                if (which == 0) {
+                    playbackQueue.clear();
+                    playbackQueue.addAll(displayedSongs);
+                    currentPlaylistIndex = position;
+                    playSong(target);
+                } else if (which == 1) {
+                    if (isFav) {
+                        favoriteSongIds.remove(target.id);
+                        Toast.makeText(MainActivity.this,
+                                "Removed from Favorites: " + target.title,
+                                Toast.LENGTH_SHORT).show();
+                    } else {
+                        favoriteSongIds.add(target.id);
+                        Toast.makeText(MainActivity.this,
+                                "Added to Favorites: " + target.title,
+                                Toast.LENGTH_SHORT).show();
+                    }
+                    saveFavoriteIds();
+                    applyFiltersAndSort();
+                } else if (which == 2) {
+                    showAlbumArtEditorDialog(target);
+                }
+            }
+        });
+        builder.setNegativeButton("Cancel", null);
+        builder.show();
+    }
+
+    private void loadSongThumbnailAsync(final long songId) {
+        if (songId <= 0L || artThumbCache.get(songId) != null || artLoadInFlight.contains(songId)) {
+            return;
+        }
+        if (noArtSongIds.contains(songId) && !HoloAlbumArtHelper.hasCustomArt(this, songId)) {
+            return;
+        }
+        artLoadInFlight.add(songId);
+        artExecutor.execute(new Runnable() {
+            @Override
+            public void run() {
+                final HoloAlbumArtHelper.ArtworkLoadResult result =
+                        HoloAlbumArtHelper.loadTrackArtwork(MainActivity.this, songId, 160);
+                uiHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        artLoadInFlight.remove(songId);
+                        if (isFinishing() || isDestroyed()) {
+                            return;
+                        }
+                        if (result.bitmap != null) {
+                            artThumbCache.put(songId, result.bitmap);
+                            noArtSongIds.remove(songId);
+                            corruptedArtSongIds.remove(songId);
+                            if (result.isCustom) {
+                                customArtSongIds.add(songId);
+                            }
+                        } else {
+                            noArtSongIds.add(songId);
+                            if (result.embeddedCorrupted) {
+                                corruptedArtSongIds.add(songId);
+                            }
+                        }
+                        if (songId == currentSongId) {
+                            updateNowPlayingArtworkView(songId);
+                        }
+                        songAdapter.notifyDataSetChanged();
+                    }
+                });
+            }
+        });
+    }
+
+    private void updateNowPlayingArtworkView(long songId) {
+        if (ivNowPlayingArt == null) {
+            return;
+        }
+        Bitmap bmp = songId > 0L ? artThumbCache.get(songId) : null;
+        if (bmp != null) {
+            ivNowPlayingArt.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            ivNowPlayingArt.setColorFilter(null);
+            ivNowPlayingArt.setImageBitmap(bmp);
+        } else {
+            ivNowPlayingArt.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+            ivNowPlayingArt.setImageResource(android.R.drawable.ic_media_play);
+            ivNowPlayingArt.setColorFilter(HOLO_BLUE_LIGHT, PorterDuff.Mode.SRC_IN);
+            if (songId > 0L) {
+                loadSongThumbnailAsync(songId);
+            }
+        }
+    }
+
+    private int dpToPx(int dp) {
+        return Math.round(TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP, dp, getResources().getDisplayMetrics()));
+    }
+
+    private void showAlbumArtEditorDialog(final Song song) {
+        if (song == null) {
+            return;
+        }
+
+        final int[] selectedStyle = new int[]{HoloAlbumArtHelper.STYLE_HOLO_WAVE};
+        final int[] variantCounter = new int[]{0};
+
+        final boolean initialMissingOrCorrupted =
+                !HoloAlbumArtHelper.hasCustomArt(this, song.id)
+                        && (corruptedArtSongIds.contains(song.id)
+                        || noArtSongIds.contains(song.id)
+                        || artThumbCache.get(song.id) == null);
+
+        Bitmap existingFull = HoloAlbumArtHelper.loadTrackArtwork(this, song.id, 512).bitmap;
+        final String defaultSeed = !"Local Library".equals(song.album) ? song.album : song.title;
+        if (existingFull == null) {
+            activeArtPreviewBitmap = HoloAlbumArtHelper.generateHoloCoverArt(
+                    song.title, song.artist, song.album, selectedStyle[0], defaultSeed, 512);
+        } else {
+            activeArtPreviewBitmap = existingFull;
+        }
+
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        int pad = dpToPx(16);
+        root.setPadding(pad, pad, pad, pad);
+        scroll.addView(root);
+
+        TextView tvNotice = new TextView(this);
+        tvNotice.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tvNotice.setPadding(dpToPx(10), dpToPx(8), dpToPx(10), dpToPx(8));
+        if (corruptedArtSongIds.contains(song.id)) {
+            tvNotice.setText("Embedded metadata image was corrupted. Generated a KitKat Holo cover below, or pick an image from your device.");
+            tvNotice.setTextColor(0xFFFFE082);
+            tvNotice.setBackgroundColor(0x33FFA000);
+        } else if (initialMissingOrCorrupted) {
+            tvNotice.setText("No embedded album art found. Generated a KitKat Holo cover below, or pick an image from your device.");
+            tvNotice.setTextColor(0xFF9EE3FB);
+            tvNotice.setBackgroundColor(0x2633B5E5);
+        } else {
+            tvNotice.setText("Customize album cover via generated Holo artwork, device gallery photo, or library search.");
+            tvNotice.setTextColor(0xB3FFFFFF);
+            tvNotice.setBackgroundColor(0x14FFFFFF);
+        }
+        LinearLayout.LayoutParams noticeLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        noticeLp.bottomMargin = dpToPx(12);
+        root.addView(tvNotice, noticeLp);
+        activeArtStatusText = tvNotice;
+
+        // Live preview frame + track info
+        LinearLayout previewRow = new LinearLayout(this);
+        previewRow.setOrientation(LinearLayout.HORIZONTAL);
+        previewRow.setGravity(Gravity.CENTER_VERTICAL);
+        root.addView(previewRow);
+
+        ImageView ivPreview = new ImageView(this);
+        int previewPx = dpToPx(116);
+        LinearLayout.LayoutParams imgLp = new LinearLayout.LayoutParams(previewPx, previewPx);
+        GradientDrawable frameBg = new GradientDrawable();
+        frameBg.setColor(0xFF0D1218);
+        frameBg.setStroke(dpToPx(2), HOLO_BLUE_LIGHT);
+        ivPreview.setBackground(frameBg);
+        ivPreview.setPadding(dpToPx(2), dpToPx(2), dpToPx(2), dpToPx(2));
+        ivPreview.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        ivPreview.setImageBitmap(activeArtPreviewBitmap);
+        previewRow.addView(ivPreview, imgLp);
+        activeArtPreviewView = ivPreview;
+
+        LinearLayout metaCol = new LinearLayout(this);
+        metaCol.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams metaLp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        metaLp.setMarginStart(dpToPx(12));
+        previewRow.addView(metaCol, metaLp);
+
+        TextView tvTrackName = new TextView(this);
+        tvTrackName.setText(song.title);
+        tvTrackName.setTextColor(HOLO_TEXT_PRIMARY);
+        tvTrackName.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        tvTrackName.setTypeface(Typeface.DEFAULT_BOLD);
+        metaCol.addView(tvTrackName);
+
+        TextView tvArtistAlbum = new TextView(this);
+        tvArtistAlbum.setText(song.artist + " · " + song.album);
+        tvArtistAlbum.setTextColor(HOLO_BLUE_LIGHT);
+        tvArtistAlbum.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tvArtistAlbum.setPadding(0, dpToPx(4), 0, dpToPx(8));
+        metaCol.addView(tvArtistAlbum);
+
+        Button btnPickDevice = new Button(this);
+        btnPickDevice.setText("Pick From Device...");
+        btnPickDevice.setTextColor(HOLO_BLUE_LIGHT);
+        btnPickDevice.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        btnPickDevice.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                launchDeviceImagePicker();
+            }
+        });
+        metaCol.addView(btnPickDevice);
+
+        // Cover Label / Visual Seed input + Shuffle
+        TextView tvSeedLabel = new TextView(this);
+        tvSeedLabel.setText("GENERATE HOLO COVER (LABEL & STYLE)");
+        tvSeedLabel.setTextColor(HOLO_BLUE_LIGHT);
+        tvSeedLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        tvSeedLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        tvSeedLabel.setPadding(0, dpToPx(14), 0, dpToPx(4));
+        root.addView(tvSeedLabel);
+
+        LinearLayout seedRow = new LinearLayout(this);
+        seedRow.setOrientation(LinearLayout.HORIZONTAL);
+        seedRow.setGravity(Gravity.CENTER_VERTICAL);
+        root.addView(seedRow);
+
+        final EditText etSeed = new EditText(this);
+        etSeed.setText(defaultSeed);
+        etSeed.setHint("Album or cover title...");
+        etSeed.setTextColor(HOLO_TEXT_PRIMARY);
+        etSeed.setHintTextColor(HOLO_TEXT_DIM);
+        etSeed.setSingleLine(true);
+        seedRow.addView(etSeed, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        Button btnShuffle = new Button(this);
+        btnShuffle.setText("Shuffle");
+        btnShuffle.setTextColor(HOLO_BLUE_LIGHT);
+        btnShuffle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        seedRow.addView(btnShuffle);
+
+        final Runnable regenerateAction = new Runnable() {
+            @Override
+            public void run() {
+                String label = etSeed.getText().toString().trim();
+                String effectiveSeed = variantCounter[0] > 0
+                        ? (label.isEmpty() ? defaultSeed : label) + " #" + variantCounter[0]
+                        : label;
+                Bitmap generated = HoloAlbumArtHelper.generateHoloCoverArt(
+                        song.title,
+                        song.artist,
+                        song.album,
+                        selectedStyle[0],
+                        effectiveSeed,
+                        512);
+                activeArtPreviewBitmap = generated;
+                if (activeArtPreviewView != null) {
+                    activeArtPreviewView.setImageBitmap(generated);
+                }
+            }
+        };
+
+        etSeed.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                regenerateAction.run();
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+            }
+        });
+
+        btnShuffle.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                variantCounter[0]++;
+                regenerateAction.run();
+            }
+        });
+
+        // Style selector row (wrapping across 2 clean Holo rows)
+        LinearLayout styleRow1 = new LinearLayout(this);
+        styleRow1.setOrientation(LinearLayout.HORIZONTAL);
+        root.addView(styleRow1);
+
+        LinearLayout styleRow2 = new LinearLayout(this);
+        styleRow2.setOrientation(LinearLayout.HORIZONTAL);
+        root.addView(styleRow2);
+
+        final List<Button> styleButtons = new ArrayList<>();
+        for (int i = 0; i < HoloAlbumArtHelper.STYLE_LABELS.length; i++) {
+            final int styleIdx = i;
+            Button btnStyle = new Button(this);
+            btnStyle.setText(HoloAlbumArtHelper.STYLE_LABELS[i]);
+            btnStyle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            btnStyle.setTextColor(i == selectedStyle[0] ? HOLO_BLUE_LIGHT : HOLO_TEXT_PRIMARY);
+            btnStyle.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    selectedStyle[0] = styleIdx;
+                    for (int j = 0; j < styleButtons.size(); j++) {
+                        styleButtons.get(j).setTextColor(
+                                j == styleIdx ? HOLO_BLUE_LIGHT : HOLO_TEXT_PRIMARY);
+                    }
+                    regenerateAction.run();
+                }
+            });
+            styleButtons.add(btnStyle);
+            LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            if (i < 3) {
+                styleRow1.addView(btnStyle, btnLp);
+            } else {
+                styleRow2.addView(btnStyle, btnLp);
+            }
+        }
+
+        // Library Artwork Search section
+        TextView tvSearchLabel = new TextView(this);
+        tvSearchLabel.setText("SEARCH EXISTING LIBRARY ARTWORK");
+        tvSearchLabel.setTextColor(HOLO_BLUE_LIGHT);
+        tvSearchLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        tvSearchLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        tvSearchLabel.setPadding(0, dpToPx(12), 0, dpToPx(4));
+        root.addView(tvSearchLabel);
+
+        EditText etSearchArt = new EditText(this);
+        etSearchArt.setHint("Search tracks or albums with cover art...");
+        etSearchArt.setTextColor(HOLO_TEXT_PRIMARY);
+        etSearchArt.setHintTextColor(HOLO_TEXT_DIM);
+        etSearchArt.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        etSearchArt.setSingleLine(true);
+        root.addView(etSearchArt);
+
+        final LinearLayout searchResultsBox = new LinearLayout(this);
+        searchResultsBox.setOrientation(LinearLayout.VERTICAL);
+        root.addView(searchResultsBox);
+
+        populateLibraryArtMatches(searchResultsBox, "", song.id);
+
+        etSearchArt.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                String q = s != null ? s.toString().trim().toLowerCase(Locale.US) : "";
+                populateLibraryArtMatches(searchResultsBox, q, song.id);
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+            }
+        });
+
+        // Apply to album checkbox
+        final List<Song> sameAlbumSongs = new ArrayList<>();
+        for (Song candidate : allSongs) {
+            if (candidate.album.equals(song.album) && candidate.artist.equals(song.artist)) {
+                sameAlbumSongs.add(candidate);
+            }
+        }
+        final CheckBox cbApplyAlbum = new CheckBox(this);
+        if (sameAlbumSongs.size() > 1) {
+            cbApplyAlbum.setText("Apply to all " + sameAlbumSongs.size() + " tracks in \"" + song.album + "\"");
+            cbApplyAlbum.setTextColor(HOLO_TEXT_PRIMARY);
+            cbApplyAlbum.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            cbApplyAlbum.setChecked(true);
+            LinearLayout.LayoutParams cbLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            cbLp.topMargin = dpToPx(10);
+            root.addView(cbApplyAlbum, cbLp);
+        }
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this, AlertDialog.THEME_HOLO_DARK);
+        builder.setTitle(R.string.holo_art_dialog_title);
+        builder.setView(scroll);
+        builder.setPositiveButton("Save Cover", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                Bitmap toSave = activeArtPreviewBitmap;
+                if (toSave != null) {
+                    List<Song> targets = (sameAlbumSongs.size() > 1 && cbApplyAlbum.isChecked())
+                            ? sameAlbumSongs
+                            : Collections.singletonList(song);
+                    applyCustomArtworkToSongs(targets, toSave);
+                }
+                clearActiveArtEditorRefs();
+            }
+        });
+        builder.setNeutralButton("Clear Custom", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                List<Song> targets = (sameAlbumSongs.size() > 1 && cbApplyAlbum.isChecked())
+                        ? sameAlbumSongs
+                        : Collections.singletonList(song);
+                clearCustomArtworkFromSongs(targets);
+                clearActiveArtEditorRefs();
+            }
+        });
+        builder.setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                clearActiveArtEditorRefs();
+            }
+        });
+        builder.setOnCancelListener(new DialogInterface.OnCancelListener() {
+            @Override
+            public void onCancel(DialogInterface dialog) {
+                clearActiveArtEditorRefs();
+            }
+        });
+        builder.show();
+    }
+
+    private void populateLibraryArtMatches(
+            LinearLayout container, String queryLower, long excludeSongId) {
+        container.removeAllViews();
+        int added = 0;
+        for (final Song candidate : allSongs) {
+            if (candidate.id == excludeSongId) {
+                continue;
+            }
+            Bitmap thumb = artThumbCache.get(candidate.id);
+            if (thumb == null) {
+                continue;
+            }
+            if (!queryLower.isEmpty()) {
+                boolean match = candidate.title.toLowerCase(Locale.US).contains(queryLower)
+                        || candidate.artist.toLowerCase(Locale.US).contains(queryLower)
+                        || candidate.album.toLowerCase(Locale.US).contains(queryLower);
+                if (!match) {
+                    continue;
+                }
+            }
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dpToPx(6), dpToPx(6), dpToPx(6), dpToPx(6));
+            row.setBackgroundColor(0x14FFFFFF);
+
+            ImageView iv = new ImageView(this);
+            int thumbSize = dpToPx(34);
+            iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            iv.setImageBitmap(thumb);
+            row.addView(iv, new LinearLayout.LayoutParams(thumbSize, thumbSize));
+
+            TextView tv = new TextView(this);
+            tv.setText(candidate.album + " — " + candidate.artist);
+            tv.setTextColor(HOLO_TEXT_PRIMARY);
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            tv.setSingleLine(true);
+            LinearLayout.LayoutParams tvLp = new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            tvLp.setMarginStart(dpToPx(10));
+            row.addView(tv, tvLp);
+
+            row.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    Bitmap full = HoloAlbumArtHelper.loadTrackArtwork(
+                            MainActivity.this, candidate.id, 512).bitmap;
+                    if (full != null) {
+                        activeArtPreviewBitmap = full;
+                        if (activeArtPreviewView != null) {
+                            activeArtPreviewView.setImageBitmap(full);
+                        }
+                        if (activeArtStatusText != null) {
+                            activeArtStatusText.setText("Loaded cover from \"" + candidate.album + "\". Tap Save Cover to apply.");
+                        }
+                    }
+                }
+            });
+
+            LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            rowLp.topMargin = dpToPx(4);
+            container.addView(row, rowLp);
+            added++;
+            if (added >= 6) {
+                break;
+            }
+        }
+        if (added == 0) {
+            TextView empty = new TextView(this);
+            empty.setText("No cached library covers matched yet. Generate or pick from device above.");
+            empty.setTextColor(HOLO_TEXT_DIM);
+            empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            empty.setPadding(0, dpToPx(4), 0, dpToPx(4));
+            container.addView(empty);
+        }
+    }
+
+    private void launchDeviceImagePicker() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("image/*");
+        try {
+            startActivityForResult(intent, REQUEST_PICK_ALBUM_ART);
+        } catch (Exception e) {
+            Intent fallback = new Intent(Intent.ACTION_GET_CONTENT);
+            fallback.setType("image/*");
+            try {
+                startActivityForResult(Intent.createChooser(fallback, "Select Album Art"), REQUEST_PICK_ALBUM_ART);
+            } catch (Exception ex) {
+                Toast.makeText(this, "No image picker app available on device.", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_PICK_ALBUM_ART && resultCode == RESULT_OK
+                && data != null && data.getData() != null) {
+            final Uri pickedUri = data.getData();
+            artExecutor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    final Bitmap cropped = HoloAlbumArtHelper.decodeAndCropFromUri(
+                            MainActivity.this, pickedUri, 512);
+                    uiHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (isFinishing() || isDestroyed()) {
+                                return;
+                            }
+                            if (cropped != null) {
+                                activeArtPreviewBitmap = cropped;
+                                if (activeArtPreviewView != null) {
+                                    activeArtPreviewView.setImageBitmap(cropped);
+                                }
+                                if (activeArtStatusText != null) {
+                                    activeArtStatusText.setText("Loaded selected image from device. Tap Save Cover to apply.");
+                                    activeArtStatusText.setTextColor(0xFF9EE3FB);
+                                }
+                            } else {
+                                Toast.makeText(MainActivity.this,
+                                        "Selected image could not be decoded.",
+                                        Toast.LENGTH_SHORT).show();
+                            }
+                        }
+                    });
+                }
+            });
+        }
+    }
+
+    private void applyCustomArtworkToSongs(final List<Song> targets, final Bitmap coverBitmap) {
+        final Bitmap thumb = Bitmap.createScaledBitmap(coverBitmap, 160, 160, true);
+        artExecutor.execute(new Runnable() {
+            @Override
+            public void run() {
+                for (Song s : targets) {
+                    HoloAlbumArtHelper.saveCustomArtBitmap(MainActivity.this, s.id, coverBitmap);
+                }
+                uiHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (isFinishing() || isDestroyed()) {
+                            return;
+                        }
+                        for (Song s : targets) {
+                            artThumbCache.put(s.id, thumb);
+                            customArtSongIds.add(s.id);
+                            noArtSongIds.remove(s.id);
+                            corruptedArtSongIds.remove(s.id);
+                        }
+                        updateNowPlayingArtworkView(currentSongId);
+                        songAdapter.notifyDataSetChanged();
+                        Toast.makeText(MainActivity.this,
+                                "Saved album art for " + targets.size()
+                                        + (targets.size() == 1 ? " track." : " tracks."),
+                                Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+        });
+    }
+
+    private void clearCustomArtworkFromSongs(final List<Song> targets) {
+        artExecutor.execute(new Runnable() {
+            @Override
+            public void run() {
+                for (Song s : targets) {
+                    HoloAlbumArtHelper.deleteCustomArt(MainActivity.this, s.id);
+                }
+                uiHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (isFinishing() || isDestroyed()) {
+                            return;
+                        }
+                        for (Song s : targets) {
+                            artThumbCache.remove(s.id);
+                            customArtSongIds.remove(s.id);
+                            noArtSongIds.remove(s.id);
+                            corruptedArtSongIds.remove(s.id);
+                            loadSongThumbnailAsync(s.id);
+                        }
+                        updateNowPlayingArtworkView(currentSongId);
+                        songAdapter.notifyDataSetChanged();
+                        Toast.makeText(MainActivity.this,
+                                "Cleared custom album art.",
+                                Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+        });
+    }
+
+    private void clearActiveArtEditorRefs() {
+        activeArtPreviewView = null;
+        activeArtPreviewBitmap = null;
+        activeArtStatusText = null;
     }
 
     private final class SongAdapter extends BaseAdapter {
@@ -1142,13 +1829,39 @@ public class MainActivity extends Activity {
                 holder = (ViewHolder) convertView.getTag();
             }
 
-            Song song = getItem(position);
+            final Song song = getItem(position);
             boolean isCurrent = (song.id == currentSongId);
             boolean isFav = favoriteSongIds.contains(song.id);
 
             holder.tvTitle.setText(isFav ? "★ " + song.title : song.title);
-            holder.tvArtist.setText(song.artist);
+            holder.tvArtist.setText(song.artist + " · " + song.album);
             holder.tvDuration.setText(formatDuration(song.durationMs));
+
+            Bitmap thumb = artThumbCache.get(song.id);
+            if (thumb != null) {
+                holder.ivArt.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                holder.ivArt.setColorFilter(null);
+                holder.ivArt.setImageBitmap(thumb);
+            } else {
+                holder.ivArt.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+                holder.ivArt.setImageResource(android.R.drawable.ic_media_play);
+                holder.ivArt.setColorFilter(
+                        corruptedArtSongIds.contains(song.id) ? 0x99FFB300 : 0x6633B5E5,
+                        PorterDuff.Mode.SRC_IN);
+                loadSongThumbnailAsync(song.id);
+            }
+
+            holder.btnEditArt.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    showAlbumArtEditorDialog(song);
+                }
+            });
+            if (holder.btnEditArt.getDrawable() != null) {
+                holder.btnEditArt.getDrawable().mutate().setColorFilter(
+                        thumb == null ? HOLO_BLUE_LIGHT : HOLO_TEXT_DIM,
+                        PorterDuff.Mode.SRC_IN);
+            }
 
             if (isCurrent) {
                 boolean activelyPlaying = isPlayingSafe();
@@ -1182,16 +1895,20 @@ public class MainActivity extends Activity {
         private final class ViewHolder {
             final View viewIndicator;
             final ImageView ivStatus;
+            final ImageView ivArt;
             final TextView tvTitle;
             final TextView tvArtist;
             final TextView tvDuration;
+            final ImageButton btnEditArt;
 
             ViewHolder(View root) {
                 viewIndicator = root.findViewById(R.id.view_playing_indicator);
                 ivStatus = root.findViewById(R.id.iv_row_status);
+                ivArt = root.findViewById(R.id.iv_item_art);
                 tvTitle = root.findViewById(R.id.tv_item_title);
                 tvArtist = root.findViewById(R.id.tv_item_artist);
                 tvDuration = root.findViewById(R.id.tv_item_duration);
+                btnEditArt = root.findViewById(R.id.btn_item_edit_art);
             }
         }
     }

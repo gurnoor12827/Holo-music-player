@@ -124,41 +124,72 @@
             android:layout_height="2dp"
             android:background="@color/holo_blue_light" />
 
-        <!-- Now Playing Metadata -->
+        <!-- Now Playing Metadata with Album Art & Edit Trigger -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
             android:paddingStart="14dp"
             android:paddingTop="10dp"
-            android:paddingEnd="14dp"
-            android:paddingBottom="2dp">
+            android:paddingEnd="10dp"
+            android:paddingBottom="4dp">
 
-            <TextView
-                android:id="@+id/tv_now_playing_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:ellipsize="marquee"
+            <ImageView
+                android:id="@+id/iv_now_playing_art"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:background="#12171D"
+                android:clickable="true"
+                android:contentDescription="@string/holo_cd_album_art"
                 android:focusable="true"
-                android:focusableInTouchMode="true"
-                android:marqueeRepeatLimit="marquee_forever"
-                android:scrollHorizontally="true"
-                android:singleLine="true"
-                android:text="@string/holo_idle_title"
-                android:textColor="@color/holo_text_primary"
-                android:textSize="15sp"
-                android:textStyle="bold" />
+                android:padding="1dp"
+                android:scaleType="centerInside"
+                android:src="@android:drawable/ic_media_play" />
 
-            <TextView
-                android:id="@+id/tv_now_playing_artist"
-                android:layout_width="match_parent"
+            <LinearLayout
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:ellipsize="end"
-                android:singleLine="true"
-                android:text="@string/holo_idle_artist"
-                android:textColor="@color/holo_blue_light"
-                android:textSize="12sp" />
+                android:layout_marginStart="12dp"
+                android:layout_marginEnd="6dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tv_now_playing_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="marquee"
+                    android:focusable="true"
+                    android:focusableInTouchMode="true"
+                    android:marqueeRepeatLimit="marquee_forever"
+                    android:scrollHorizontally="true"
+                    android:singleLine="true"
+                    android:text="@string/holo_idle_title"
+                    android:textColor="@color/holo_text_primary"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tv_now_playing_artist"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:ellipsize="end"
+                    android:singleLine="true"
+                    android:text="@string/holo_idle_artist"
+                    android:textColor="@color/holo_blue_light"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <ImageButton
+                android:id="@+id/btn_edit_album_art"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?android:attr/selectableItemBackground"
+                android:contentDescription="@string/holo_cd_edit_art"
+                android:scaleType="centerInside"
+                android:src="@android:drawable/ic_menu_gallery" />
         </LinearLayout>
 
         <!-- Holo SeekBar with Elapsed & Total Duration -->

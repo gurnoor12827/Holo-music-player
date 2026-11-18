@@ -157,3 +157,11 @@ export function HoloCloseIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function HoloImageEditIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
+      <path d="M4 5h16v14H4V5zm2 2v10h12V7H6zm2.5 8 2.8-3.5 2.1 2.5 2.6-3.2L17 15H8.5zm1-5.2a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6z" />
+    </svg>
+  );
+}

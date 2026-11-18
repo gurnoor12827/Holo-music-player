@@ -27,6 +27,9 @@
     <string name="holo_cd_play_pause">Play or pause</string>
     <string name="holo_cd_next">Next track</string>
     <string name="holo_cd_playing_state">Playback status</string>
+    <string name="holo_cd_album_art">Album art</string>
+    <string name="holo_cd_edit_art">Edit album art</string>
+    <string name="holo_art_dialog_title">Edit Album Art</string>
 
     <!-- Base application theme inheriting directly from @android:style/Theme.Holo -->
     <style name="AppTheme" parent="@android:style/Theme.Holo">

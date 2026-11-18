@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from 'react';
+import { HoloAlbumArtDialog } from './components/HoloAlbumArtDialog';
 import {
   HoloAddToPlaylistDialog,
   HoloCreatePlaylistDialog,
@@ -11,6 +12,7 @@ import {
   HoloCloseIcon,
   HoloEqualizerIcon,
   HoloFolderMusicIcon,
+  HoloImageEditIcon,
   HoloMusicNoteIcon,
   HoloNextIcon,
   HoloPauseIcon,
@@ -74,6 +76,11 @@ export default function App() {
   const [showCreatePlaylist, setShowCreatePlaylist] = useState(false);
   const [addToPlaylistTrack, setAddToPlaylistTrack] = useState<TrackRecord | null>(null);
   const [pickerPlaylistId, setPickerPlaylistId] = useState<string | null>(null);
+  const [editingArtState, setEditingArtState] = useState<{
+    track: TrackRecord;
+    isCorrupted: boolean;
+  } | null>(null);
+  const [brokenArtIds, setBrokenArtIds] = useState<Set<string>>(() => new Set());
 
   const [equalizer, setEqualizer] = useState<EqualizerState>(() => loadEqualizerState());
   const [showEqualizer, setShowEqualizer] = useState(false);
@@ -269,6 +276,65 @@ export default function App() {
     }
   };
 
+  const markArtworkCorrupted = (trackId: string) => {
+    setBrokenArtIds((prev) => {
+      if (prev.has(trackId)) return prev;
+      const next = new Set(prev);
+      next.add(trackId);
+      return next;
+    });
+  };
+
+  const openAlbumArtEditor = (track: TrackRecord) => {
+    setEditingArtState({
+      track,
+      isCorrupted: !track.artworkDataUrl || brokenArtIds.has(track.id),
+    });
+  };
+
+  const handleSaveArtwork = async (
+    targetTrack: TrackRecord,
+    artworkDataUrl: string | null,
+    applyToAlbum: boolean
+  ) => {
+    const affectedTracks = tracks.filter(
+      (t) =>
+        t.id === targetTrack.id ||
+        (applyToAlbum && t.album === targetTrack.album && t.artist === targetTrack.artist)
+    );
+    if (affectedTracks.length === 0) return;
+
+    const affectedIds = new Set(affectedTracks.map((t) => t.id));
+    const updatedRecords = affectedTracks.map((t) => ({ ...t, artworkDataUrl }));
+
+    setTracks((prev) =>
+      prev.map((t) => (affectedIds.has(t.id) ? { ...t, artworkDataUrl } : t))
+    );
+    setBrokenArtIds((prev) => {
+      const next = new Set(prev);
+      for (const id of affectedIds) {
+        next.delete(id);
+      }
+      return next;
+    });
+    player.updateTracksArtwork(affectedIds, artworkDataUrl);
+
+    try {
+      await saveTracks(updatedRecords);
+      setStatusMessage(
+        artworkDataUrl
+          ? `Updated album art for ${updatedRecords.length} ${
+              updatedRecords.length === 1 ? 'track' : 'tracks'
+            }.`
+          : `Cleared album art for ${updatedRecords.length} ${
+              updatedRecords.length === 1 ? 'track' : 'tracks'
+            }.`
+      );
+    } catch {
+      setStatusMessage('Failed to save updated album art to IndexedDB.');
+    }
+  };
+
   // Derived sorted & filtered track collections
   const trackMap = useMemo(() => {
     const map = new Map<string, TrackRecord>();
@@ -330,12 +396,14 @@ export default function App() {
       }
       group.tracks.push(t);
       group.albums.add(t.album);
-      if (!group.artwork && t.artworkDataUrl) group.artwork = t.artworkDataUrl;
+      if (!group.artwork && t.artworkDataUrl && !brokenArtIds.has(t.id)) {
+        group.artwork = t.artworkDataUrl;
+      }
     }
     return Array.from(groups.values()).sort((a, b) =>
       a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
     );
-  }, [tracks, searchQuery]);
+  }, [tracks, searchQuery, brokenArtIds]);
 
   const albumsSummary = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -360,17 +428,19 @@ export default function App() {
           album: albumName,
           artist: t.artist,
           tracks: [],
-          artwork: t.artworkDataUrl,
+          artwork: !brokenArtIds.has(t.id) ? t.artworkDataUrl : null,
         };
         groups.set(key, group);
       }
       group.tracks.push(t);
-      if (!group.artwork && t.artworkDataUrl) group.artwork = t.artworkDataUrl;
+      if (!group.artwork && t.artworkDataUrl && !brokenArtIds.has(t.id)) {
+        group.artwork = t.artworkDataUrl;
+      }
     }
     return Array.from(groups.values()).sort((a, b) =>
       a.album.localeCompare(b.album, undefined, { sensitivity: 'base' })
     );
-  }, [tracks, searchQuery]);
+  }, [tracks, searchQuery, brokenArtIds]);
 
   const activeArtistGroup = useMemo(
     () => (selectedArtist ? artistsSummary.find((a) => a.name === selectedArtist) || null : null),
@@ -416,6 +486,8 @@ export default function App() {
     playlistContextId?: string
   ) => {
     const isCurrent = player.currentTrack?.id === track.id;
+    const isArtBroken = brokenArtIds.has(track.id);
+    const hasValidArt = Boolean(track.artworkDataUrl) && !isArtBroken;
     return (
       <div
         key={`${playlistContextId || 'lib'}-${track.id}-${index}`}
@@ -438,10 +510,11 @@ export default function App() {
         >
           {/* Album Artwork or Holo Music Note */}
           <div className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden border border-white/15 bg-[#12171d] shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]">
-            {track.artworkDataUrl ? (
+            {hasValidArt && track.artworkDataUrl ? (
               <img
                 src={track.artworkDataUrl}
                 alt={`${track.album} cover`}
+                onError={() => markArtworkCorrupted(track.id)}
                 className="h-full w-full object-cover"
               />
             ) : (
@@ -481,6 +554,18 @@ export default function App() {
 
         {/* Row Quick Actions */}
         <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            title={hasValidArt ? 'Edit album art' : 'Set or generate album art'}
+            aria-label={`Edit album art for ${track.title}`}
+            onClick={() => openAlbumArtEditor(track)}
+            className={`flex h-9 w-9 items-center justify-center hover:bg-[#33B5E5]/15 hover:text-[#33B5E5] ${
+              !hasValidArt ? 'text-[#33B5E5]/85' : 'text-white/55'
+            }`}
+          >
+            <HoloImageEditIcon className="h-4 w-4" />
+          </button>
+
           <button
             type="button"
             title="Add to playlist"
@@ -848,6 +933,10 @@ export default function App() {
                       <img
                         src={artist.artwork}
                         alt={artist.name}
+                        onError={() => {
+                          const broken = artist.tracks.find((t) => t.artworkDataUrl === artist.artwork);
+                          if (broken) markArtworkCorrupted(broken.id);
+                        }}
                         className="h-full w-full object-cover"
                       />
                     ) : (
@@ -917,6 +1006,10 @@ export default function App() {
                         <img
                           src={alb.artwork}
                           alt={alb.album}
+                          onError={() => {
+                            const broken = alb.tracks.find((t) => t.artworkDataUrl === alb.artwork);
+                            if (broken) markArtworkCorrupted(broken.id);
+                          }}
                           className="h-full w-full object-cover"
                         />
                       ) : (
@@ -1039,7 +1132,10 @@ export default function App() {
                     .map((id) => trackMap.get(id))
                     .filter((t): t is TrackRecord => Boolean(t));
                   const totalSec = resolvedTracks.reduce((sum, t) => sum + t.durationSec, 0);
-                  const cover = resolvedTracks.find((t) => t.artworkDataUrl)?.artworkDataUrl || null;
+                  const coverTrack = resolvedTracks.find(
+                    (t) => t.artworkDataUrl && !brokenArtIds.has(t.id)
+                  );
+                  const cover = coverTrack?.artworkDataUrl || null;
 
                   return (
                     <div
@@ -1053,7 +1149,14 @@ export default function App() {
                       >
                         <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden border border-white/15 bg-[#12171d]">
                           {cover ? (
-                            <img src={cover} alt={pl.name} className="h-full w-full object-cover" />
+                            <img
+                              src={cover}
+                              alt={pl.name}
+                              onError={() => {
+                                if (coverTrack) markArtworkCorrupted(coverTrack.id);
+                              }}
+                              className="h-full w-full object-cover"
+                            />
                           ) : (
                             <HoloPlaylistAddIcon className="h-5 w-5 text-[#33B5E5]" />
                           )}
@@ -1108,17 +1211,47 @@ export default function App() {
         {/* Now Playing Metadata & Quick Controls */}
         <div className="flex items-center justify-between gap-3 px-3 pt-2.5 sm:px-4">
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden border border-[#33B5E5]/40 bg-[#0d1218]">
-              {player.currentTrack?.artworkDataUrl ? (
+            <button
+              type="button"
+              disabled={!player.currentTrack}
+              title={
+                player.currentTrack
+                  ? 'Tap to edit or generate album art'
+                  : 'Album art'
+              }
+              aria-label={
+                player.currentTrack
+                  ? `Edit album art for ${player.currentTrack.title}`
+                  : 'Album art'
+              }
+              onClick={() => {
+                if (player.currentTrack) {
+                  openAlbumArtEditor(player.currentTrack);
+                }
+              }}
+              className="group relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden border border-[#33B5E5]/40 bg-[#0d1218] disabled:cursor-default"
+            >
+              {player.currentTrack?.artworkDataUrl &&
+              !brokenArtIds.has(player.currentTrack.id) ? (
                 <img
                   src={player.currentTrack.artworkDataUrl}
                   alt={player.currentTrack.album}
+                  onError={() => {
+                    if (player.currentTrack) {
+                      markArtworkCorrupted(player.currentTrack.id);
+                    }
+                  }}
                   className="h-full w-full object-cover"
                 />
               ) : (
                 <HoloMusicNoteIcon className="h-5 w-5 text-[#33B5E5]" />
               )}
-            </div>
+              {player.currentTrack && (
+                <span className="absolute inset-0 flex items-center justify-center bg-black/55 opacity-0 transition-opacity group-hover:opacity-100">
+                  <HoloImageEditIcon className="h-4 w-4 text-[#33B5E5]" />
+                </span>
+              )}
+            </button>
 
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold text-white">
@@ -1134,6 +1267,22 @@ export default function App() {
 
           {/* Compact Mode & Playlist Buttons */}
           <div className="flex shrink-0 items-center gap-1">
+            {player.currentTrack && (
+              <button
+                type="button"
+                title="Edit or generate album art"
+                aria-label="Edit or generate album art"
+                onClick={() => {
+                  if (player.currentTrack) {
+                    openAlbumArtEditor(player.currentTrack);
+                  }
+                }}
+                className="flex h-8 w-8 items-center justify-center text-white/65 hover:text-[#33B5E5]"
+              >
+                <HoloImageEditIcon className="h-4 w-4" />
+              </button>
+            )}
+
             <button
               type="button"
               title={player.shuffle ? 'Shuffle: On' : 'Shuffle: Off'}
@@ -1284,6 +1433,16 @@ export default function App() {
         allTracks={tracks}
         onToggleTrack={(plId, trackId) => void handleToggleTrackInPlaylist(plId, trackId)}
         onClose={() => setPickerPlaylistId(null)}
+      />
+
+      <HoloAlbumArtDialog
+        track={editingArtState?.track || null}
+        allTracks={tracks}
+        isCorrupted={editingArtState?.isCorrupted}
+        onSaveArtwork={(track, artworkDataUrl, applyToAlbum) =>
+          void handleSaveArtwork(track, artworkDataUrl, applyToAlbum)
+        }
+        onClose={() => setEditingArtState(null)}
       />
     </div>
   );
