@@ -1,6 +1,7 @@
 package com.example;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.app.ActionBar;
 import android.app.Activity;
@@ -65,6 +66,8 @@ import android.widget.SearchView;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -232,6 +235,8 @@ public class MainActivity extends Activity {
     private boolean hasRequestedPermissionOnce = false;
     private boolean isNowPlayingOpen = false;
     private boolean isSettingsOpen = false;
+    private Object backInvokedCallback;
+    private boolean isBackCallbackRegistered = false;
 
     private ThemeConfig currentTheme = ThemeConfig.HOLO;
     private boolean showListArtwork = true;
@@ -316,13 +321,10 @@ public class MainActivity extends Activity {
                     @Override
                     @TargetApi(30)
                     public WindowInsets onApplyWindowInsets(View v, WindowInsets windowInsets) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            Insets bars = windowInsets.getInsets(
-                                    WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-                            decorContent.setPadding(bars.left, bars.top, bars.right, bars.bottom);
-                            return WindowInsets.CONSUMED;
-                        }
-                        return v.onApplyWindowInsets(windowInsets);
+                        Insets bars = windowInsets.getInsets(
+                                WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                        decorContent.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+                        return WindowInsets.CONSUMED;
                     }
                 });
             }
@@ -595,6 +597,7 @@ public class MainActivity extends Activity {
         }
         updateQueueCounterText();
         updateNowPlayingArtworkView(currentSongId);
+        updateBackNavigationCallback();
     }
 
     private void closeNowPlaying() {
@@ -606,6 +609,7 @@ public class MainActivity extends Activity {
                 ab.show();
             }
         }
+        updateBackNavigationCallback();
     }
 
     private void openSettings() {
@@ -617,6 +621,7 @@ public class MainActivity extends Activity {
         if (ab != null) {
             ab.hide();
         }
+        updateBackNavigationCallback();
     }
 
     private void closeSettings() {
@@ -626,16 +631,50 @@ public class MainActivity extends Activity {
         if (ab != null) {
             ab.show();
         }
+        updateBackNavigationCallback();
     }
 
-    @Override
-    public void onBackPressed() {
+    private boolean handleOverlayBackNavigation() {
         if (isSettingsOpen) {
             closeSettings();
-            return;
+            return true;
         }
         if (isNowPlayingOpen) {
             closeNowPlaying();
+            return true;
+        }
+        return false;
+    }
+
+    private void updateBackNavigationCallback() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return;
+        }
+        boolean shouldIntercept = isSettingsOpen || isNowPlayingOpen;
+        OnBackInvokedDispatcher dispatcher = getOnBackInvokedDispatcher();
+        if (shouldIntercept && !isBackCallbackRegistered) {
+            if (backInvokedCallback == null) {
+                backInvokedCallback = new OnBackInvokedCallback() {
+                    @Override
+                    public void onBackInvoked() {
+                        handleOverlayBackNavigation();
+                    }
+                };
+            }
+            dispatcher.registerOnBackInvokedCallback(
+                    OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                    (OnBackInvokedCallback) backInvokedCallback);
+            isBackCallbackRegistered = true;
+        } else if (!shouldIntercept && isBackCallbackRegistered && backInvokedCallback != null) {
+            dispatcher.unregisterOnBackInvokedCallback((OnBackInvokedCallback) backInvokedCallback);
+            isBackCallbackRegistered = false;
+        }
+    }
+
+    @Override
+    @SuppressLint("GestureBackNavigation")
+    public void onBackPressed() {
+        if (handleOverlayBackNavigation()) {
             return;
         }
         super.onBackPressed();
@@ -1589,6 +1628,13 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && isBackCallbackRegistered
+                && backInvokedCallback != null) {
+            getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(
+                    (OnBackInvokedCallback) backInvokedCallback);
+            isBackCallbackRegistered = false;
+        }
         uiHandler.removeCallbacksAndMessages(null);
         queryExecutor.shutdownNow();
         artExecutor.shutdownNow();
