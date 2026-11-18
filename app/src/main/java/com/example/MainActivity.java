@@ -314,11 +314,15 @@ public class MainActivity extends Activity {
                 final View decorContent = ((ViewGroup) decorView).getChildAt(0);
                 decorView.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
                     @Override
+                    @TargetApi(30)
                     public WindowInsets onApplyWindowInsets(View v, WindowInsets windowInsets) {
-                        Insets bars = windowInsets.getInsets(
-                                WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-                        decorContent.setPadding(bars.left, bars.top, bars.right, bars.bottom);
-                        return WindowInsets.CONSUMED;
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            Insets bars = windowInsets.getInsets(
+                                    WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                            decorContent.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+                            return WindowInsets.CONSUMED;
+                        }
+                        return v.onApplyWindowInsets(windowInsets);
                     }
                 });
             }
@@ -945,10 +949,7 @@ public class MainActivity extends Activity {
                 "Recently Added"
         };
 
-        int dialogTheme = currentTheme.isLightSurface
-                ? AlertDialog.THEME_HOLO_LIGHT
-                : AlertDialog.THEME_HOLO_DARK;
-        AlertDialog.Builder builder = new AlertDialog.Builder(this, dialogTheme);
+        AlertDialog.Builder builder = createThemedDialogBuilder();
         builder.setTitle("Sort Tracks By");
         builder.setSingleChoiceItems(sortLabels, currentSortMode, new DialogInterface.OnClickListener() {
             @Override
@@ -1617,6 +1618,14 @@ public class MainActivity extends Activity {
         return null;
     }
 
+    private AlertDialog.Builder createThemedDialogBuilder() {
+        return new AlertDialog.Builder(
+                this,
+                currentTheme.isLightSurface
+                        ? android.R.style.Theme_Holo_Light_Dialog
+                        : android.R.style.Theme_Holo_Dialog);
+    }
+
     private void showTrackActionsDialog(final Song target, final int position) {
         final boolean isFav = favoriteSongIds.contains(target.id);
         final String[] options = new String[]{
@@ -1625,10 +1634,7 @@ public class MainActivity extends Activity {
                 "Edit / Generate Album Art"
         };
 
-        int dialogTheme = currentTheme.isLightSurface
-                ? AlertDialog.THEME_HOLO_LIGHT
-                : AlertDialog.THEME_HOLO_DARK;
-        AlertDialog.Builder builder = new AlertDialog.Builder(this, dialogTheme);
+        AlertDialog.Builder builder = createThemedDialogBuilder();
         builder.setTitle(target.title);
         builder.setItems(options, new DialogInterface.OnClickListener() {
             @Override
@@ -2035,10 +2041,7 @@ public class MainActivity extends Activity {
             root.addView(cbApplyAlbum, cbLp);
         }
 
-        int dialogTheme = currentTheme.isLightSurface
-                ? AlertDialog.THEME_HOLO_LIGHT
-                : AlertDialog.THEME_HOLO_DARK;
-        AlertDialog.Builder builder = new AlertDialog.Builder(this, dialogTheme);
+        AlertDialog.Builder builder = createThemedDialogBuilder();
         builder.setTitle(R.string.holo_art_dialog_title);
         builder.setView(scroll);
         builder.setPositiveButton("Save Cover", new DialogInterface.OnClickListener() {
