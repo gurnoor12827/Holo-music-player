@@ -30,6 +30,17 @@
     <string name="holo_cd_album_art">Album art</string>
     <string name="holo_cd_edit_art">Edit album art</string>
     <string name="holo_art_dialog_title">Edit Album Art</string>
+    <string name="np_title">Now Playing</string>
+    <string name="np_cd_collapse">Collapse</string>
+    <string name="np_cd_shuffle">Shuffle</string>
+    <string name="np_cd_repeat">Repeat</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_cd_back">Back</string>
+    <string name="settings_section_theme">THEME</string>
+    <string name="settings_section_library">LIBRARY AND PLAYBACK</string>
+    <string name="settings_show_thumbnails">Show track artwork in list</string>
+    <string name="settings_sort_order">Default Sort Order</string>
+    <string name="settings_rescan_audio">Rescan Local Audio</string>
 
     <!-- Base application theme inheriting directly from @android:style/Theme.Holo -->
     <style name="AppTheme" parent="@android:style/Theme.Holo">

@@ -22,21 +22,25 @@ export function HoloSortDialog({ isOpen, currentSort, onSelect, onClose }: SortD
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: 'var(--surface-overlay)' }}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label="Sort Tracks By"
     >
       <div
-        className="holo-dialog-surface w-full max-w-sm text-white"
+        className="holo-dialog-surface w-full max-w-sm overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="border-b-2 border-[#33B5E5] px-5 py-3.5">
-          <h2 className="text-lg font-medium text-[#33B5E5]">Sort Tracks By</h2>
+        <div
+          className="px-5 py-3.5"
+          style={{ borderBottom: '2px solid var(--accent)' }}
+        >
+          <h2 className="text-base font-semibold text-[var(--accent)]">Sort Tracks By</h2>
         </div>
 
-        <div className="divide-y divide-white/10">
+        <div className="divide-y divide-[var(--divider)]">
           {SORT_OPTIONS.map((opt) => {
             const selected = opt.mode === currentSort;
             return (
@@ -47,18 +51,31 @@ export function HoloSortDialog({ isOpen, currentSort, onSelect, onClose }: SortD
                   onSelect(opt.mode);
                   onClose();
                 }}
-                className="flex w-full items-center justify-between px-5 py-3.5 text-left text-sm hover:bg-[#33B5E5]/15"
+                className="flex min-h-[46px] w-full items-center justify-between px-5 py-3 text-left text-sm hover:bg-[var(--surface-row-hover)]"
               >
-                <span className={selected ? 'font-semibold text-[#33B5E5]' : 'text-white/90'}>
+                <span
+                  className={
+                    selected
+                      ? 'font-semibold text-[var(--accent)]'
+                      : 'text-[var(--text-primary)]'
+                  }
+                >
                   {opt.label}
                 </span>
                 <span
-                  className={`flex h-4 w-4 items-center justify-center rounded-full border ${
-                    selected ? 'border-[#33B5E5]' : 'border-white/40'
-                  }`}
+                  className="flex h-4 w-4 items-center justify-center rounded-full border"
+                  style={{
+                    borderColor: selected ? 'var(--accent)' : 'var(--divider-strong)',
+                  }}
                 >
                   {selected && (
-                    <span className="h-2 w-2 rounded-full bg-[#33B5E5] shadow-[0_0_6px_#33B5E5]" />
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{
+                        backgroundColor: 'var(--accent)',
+                        boxShadow: '0 0 6px var(--accent-glow)',
+                      }}
+                    />
                   )}
                 </span>
               </button>
@@ -66,11 +83,12 @@ export function HoloSortDialog({ isOpen, currentSort, onSelect, onClose }: SortD
           })}
         </div>
 
-        <div className="border-t border-white/15">
+        <div className="border-t border-[var(--divider)]">
           <button
             type="button"
             onClick={onClose}
-            className="holo-btn w-full border-0 py-3 text-center text-sm font-medium text-white/85"
+            className="holo-btn min-h-[44px] w-full border-0 py-3 text-center text-sm font-medium"
+            style={{ borderRadius: 0 }}
           >
             Cancel
           </button>
@@ -105,14 +123,15 @@ export function HoloCreatePlaylistDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: 'var(--surface-overlay)' }}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label={heading}
     >
       <form
-        className="holo-dialog-surface w-full max-w-sm text-white"
+        className="holo-dialog-surface w-full max-w-sm overflow-hidden"
         onClick={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();
@@ -122,12 +141,18 @@ export function HoloCreatePlaylistDialog({
           onClose();
         }}
       >
-        <div className="border-b-2 border-[#33B5E5] px-5 py-3.5">
-          <h2 className="text-lg font-medium text-[#33B5E5]">{heading}</h2>
+        <div
+          className="px-5 py-3.5"
+          style={{ borderBottom: '2px solid var(--accent)' }}
+        >
+          <h2 className="text-base font-semibold text-[var(--accent)]">{heading}</h2>
         </div>
 
         <div className="px-5 py-5">
-          <label htmlFor="playlist-name-input" className="mb-2 block text-xs uppercase tracking-wider text-white/65">
+          <label
+            htmlFor="playlist-name-input"
+            className="mb-2 block text-xs uppercase tracking-wider text-[var(--text-secondary)]"
+          >
             Playlist Name
           </label>
           <input
@@ -136,23 +161,25 @@ export function HoloCreatePlaylistDialog({
             autoFocus
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Late Night Synth"
-            className="w-full border-b-2 border-[#33B5E5] bg-transparent py-2 text-base text-white placeholder-white/35 focus:outline-none"
+            placeholder="Playlist title..."
+            className="w-full border-b-2 border-[var(--accent)] bg-transparent py-2 text-base text-[var(--text-primary)] placeholder-[var(--text-dim)] focus:outline-none"
           />
         </div>
 
-        <div className="grid grid-cols-2 border-t border-white/15">
+        <div className="grid grid-cols-2 border-t border-[var(--divider)]">
           <button
             type="button"
             onClick={onClose}
-            className="holo-btn border-0 border-r border-white/15 py-3 text-sm font-medium text-white/80"
+            className="holo-btn min-h-[44px] border-0 border-r border-[var(--divider)] py-3 text-sm font-medium"
+            style={{ borderRadius: 0 }}
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={!trimmed}
-            className="holo-btn-primary border-0 py-3 text-sm font-semibold text-white disabled:opacity-40"
+            className="holo-btn-primary min-h-[44px] border-0 py-3 text-sm font-semibold disabled:opacity-40"
+            style={{ borderRadius: 0 }}
           >
             {confirmLabel}
           </button>
@@ -183,25 +210,29 @@ export function HoloAddToPlaylistDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: 'var(--surface-overlay)' }}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label="Add to Playlist"
     >
       <div
-        className="holo-dialog-surface flex max-h-[80dvh] w-full max-w-sm flex-col text-white"
+        className="holo-dialog-surface flex max-h-[80dvh] w-full max-w-sm flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="border-b-2 border-[#33B5E5] px-5 py-3.5">
-          <h2 className="text-lg font-medium text-[#33B5E5]">Add to Playlist</h2>
-          <p className="mt-0.5 truncate text-xs text-white/65">{track.title}</p>
+        <div
+          className="px-5 py-3.5"
+          style={{ borderBottom: '2px solid var(--accent)' }}
+        >
+          <h2 className="text-base font-semibold text-[var(--accent)]">Add to Playlist</h2>
+          <p className="mt-0.5 truncate text-xs text-[var(--text-secondary)]">{track.title}</p>
         </div>
 
-        <div className="holo-scroll flex-1 overflow-y-auto divide-y divide-white/10">
+        <div className="holo-scroll flex-1 divide-y divide-[var(--divider)] overflow-y-auto">
           {playlists.length === 0 ? (
-            <div className="px-5 py-5 text-xs text-white/60">
-              No playlists created yet. Enter a name below to create your first playlist.
+            <div className="px-5 py-5 text-xs text-[var(--text-secondary)]">
+              No playlists created yet. Enter a name below to create one.
             </div>
           ) : (
             playlists.map((pl) => {
@@ -211,20 +242,28 @@ export function HoloAddToPlaylistDialog({
                   key={pl.id}
                   type="button"
                   onClick={() => onToggleTrackInPlaylist(pl.id, track.id)}
-                  className="flex w-full items-center justify-between px-5 py-3 text-left text-sm hover:bg-[#33B5E5]/15"
+                  className="flex min-h-[48px] w-full items-center justify-between px-5 py-3 text-left text-sm hover:bg-[var(--surface-row-hover)]"
                 >
                   <div className="min-w-0 pr-3">
-                    <div className="truncate font-medium text-white">{pl.name}</div>
-                    <div className="text-xs text-white/55">
+                    <div className="truncate font-medium text-[var(--text-primary)]">{pl.name}</div>
+                    <div className="text-xs text-[var(--text-secondary)]">
                       {pl.trackIds.length} {pl.trackIds.length === 1 ? 'track' : 'tracks'}
                     </div>
                   </div>
                   <span
-                    className={`flex h-5 w-5 shrink-0 items-center justify-center border text-xs font-bold ${
+                    className="flex h-5 w-5 shrink-0 items-center justify-center border text-xs font-bold"
+                    style={
                       contains
-                        ? 'border-[#33B5E5] bg-[#33B5E5]/25 text-[#33B5E5]'
-                        : 'border-white/35 text-transparent'
-                    }`}
+                        ? {
+                            borderColor: 'var(--accent)',
+                            backgroundColor: 'var(--accent-soft)',
+                            color: 'var(--accent)',
+                          }
+                        : {
+                            borderColor: 'var(--divider-strong)',
+                            color: 'transparent',
+                          }
+                    }
                   >
                     ✓
                   </span>
@@ -235,7 +274,8 @@ export function HoloAddToPlaylistDialog({
         </div>
 
         <form
-          className="flex items-center gap-2 border-t border-white/15 bg-black/25 px-4 py-3"
+          className="flex items-center gap-2 border-t border-[var(--divider)] px-4 py-3"
+          style={{ backgroundColor: 'var(--surface-well)' }}
           onSubmit={(e) => {
             e.preventDefault();
             const trimmed = newName.trim();
@@ -249,22 +289,23 @@ export function HoloAddToPlaylistDialog({
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             placeholder="New playlist name..."
-            className="min-w-0 flex-1 border-b border-white/35 bg-transparent py-1.5 text-sm text-white placeholder-white/40 focus:border-[#33B5E5] focus:outline-none"
+            className="min-w-0 flex-1 border-b border-[var(--divider-strong)] bg-transparent py-1.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] focus:border-[var(--accent)] focus:outline-none"
           />
           <button
             type="submit"
             disabled={!newName.trim()}
-            className="holo-btn-primary px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+            className="holo-btn-primary min-h-[38px] px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
           >
             Create
           </button>
         </form>
 
-        <div className="border-t border-white/15">
+        <div className="border-t border-[var(--divider)]">
           <button
             type="button"
             onClick={onClose}
-            className="holo-btn w-full border-0 py-3 text-sm font-medium text-white/90"
+            className="holo-btn min-h-[44px] w-full border-0 py-3 text-sm font-medium"
+            style={{ borderRadius: 0 }}
           >
             Done
           </button>
@@ -303,30 +344,36 @@ export function HoloPlaylistPickerDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: 'var(--surface-overlay)' }}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label={`Add tracks to ${playlist.name}`}
+      aria-label={`Manage tracks in ${playlist.name}`}
     >
       <div
-        className="holo-dialog-surface flex max-h-[82dvh] w-full max-w-md flex-col text-white"
+        className="holo-dialog-surface flex max-h-[82dvh] w-full max-w-md flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="border-b-2 border-[#33B5E5] px-5 py-3.5">
-          <h2 className="text-lg font-medium text-[#33B5E5]">Manage Tracks: {playlist.name}</h2>
+        <div
+          className="px-5 py-3.5"
+          style={{ borderBottom: '2px solid var(--accent)' }}
+        >
+          <h2 className="text-base font-semibold text-[var(--accent)]">
+            Manage Tracks: {playlist.name}
+          </h2>
           <input
             type="text"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter library tracks..."
-            className="mt-2 w-full border-b border-white/30 bg-transparent py-1 text-sm text-white placeholder-white/40 focus:border-[#33B5E5] focus:outline-none"
+            className="mt-2 w-full border-b border-[var(--divider-strong)] bg-transparent py-1 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] focus:border-[var(--accent)] focus:outline-none"
           />
         </div>
 
-        <div className="holo-scroll flex-1 overflow-y-auto divide-y divide-white/10">
+        <div className="holo-scroll flex-1 divide-y divide-[var(--divider)] overflow-y-auto">
           {filtered.length === 0 ? (
-            <div className="px-5 py-6 text-center text-sm text-white/55">
+            <div className="px-5 py-6 text-center text-sm text-[var(--text-secondary)]">
               No tracks match your filter.
             </div>
           ) : (
@@ -337,20 +384,30 @@ export function HoloPlaylistPickerDialog({
                   key={t.id}
                   type="button"
                   onClick={() => onToggleTrack(playlist.id, t.id)}
-                  className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-[#33B5E5]/12"
+                  className="flex min-h-[48px] w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-[var(--surface-row-hover)]"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium text-white">{t.title}</div>
-                    <div className="truncate text-xs text-white/55">
+                    <div className="truncate text-sm font-medium text-[var(--text-primary)]">
+                      {t.title}
+                    </div>
+                    <div className="truncate text-xs text-[var(--text-secondary)]">
                       {t.artist} · {formatTime(t.durationSec)}
                     </div>
                   </div>
                   <span
-                    className={`flex h-5 w-5 shrink-0 items-center justify-center border text-xs font-bold ${
+                    className="flex h-5 w-5 shrink-0 items-center justify-center border text-xs font-bold"
+                    style={
                       selected
-                        ? 'border-[#33B5E5] bg-[#33B5E5]/25 text-[#33B5E5]'
-                        : 'border-white/35 text-transparent'
-                    }`}
+                        ? {
+                            borderColor: 'var(--accent)',
+                            backgroundColor: 'var(--accent-soft)',
+                            color: 'var(--accent)',
+                          }
+                        : {
+                            borderColor: 'var(--divider-strong)',
+                            color: 'transparent',
+                          }
+                    }
                   >
                     ✓
                   </span>
@@ -360,11 +417,12 @@ export function HoloPlaylistPickerDialog({
           )}
         </div>
 
-        <div className="border-t border-white/15">
+        <div className="border-t border-[var(--divider)]">
           <button
             type="button"
             onClick={onClose}
-            className="holo-btn-primary w-full border-0 py-3 text-sm font-semibold text-white"
+            className="holo-btn-primary min-h-[44px] w-full border-0 py-3 text-sm font-semibold"
+            style={{ borderRadius: 0 }}
           >
             Done ({playlist.trackIds.length} selected)
           </button>

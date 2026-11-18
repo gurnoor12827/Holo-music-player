@@ -4,6 +4,14 @@ export type SortMode = 'title' | 'artist' | 'album' | 'duration' | 'added';
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
+export type AppThemeId = 'holo' | 'aero' | 'skeuomorphic';
+
+export interface AppSettings {
+  theme: AppThemeId;
+  defaultSort: SortMode;
+  showListArtwork: boolean;
+}
+
 export type EqPresetName =
   | 'Normal'
   | 'Classical'

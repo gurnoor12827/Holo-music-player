@@ -406,6 +406,8 @@ export function useHoloAudioPlayer({ equalizer }: UseHoloAudioPlayerOptions) {
     shuffle,
     repeat,
     playbackError,
+    queueIndex,
+    queueLength: queue.length,
     playTrackFromList,
     togglePlayPause,
     playNext,

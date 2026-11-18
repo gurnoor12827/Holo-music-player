@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { HoloAlbumArtDialog } from './components/HoloAlbumArtDialog';
 import {
   HoloAddToPlaylistDialog,
@@ -19,14 +19,23 @@ import {
   HoloPlayIcon,
   HoloPlaylistAddIcon,
   HoloPrevIcon,
-  HoloRepeatIcon,
   HoloSearchIcon,
-  HoloShuffleIcon,
+  HoloSettingsIcon,
   HoloSortIcon,
   HoloTrashIcon,
+  HoloVinylIcon,
 } from './components/HoloIcons';
+import { NowPlayingView } from './components/NowPlayingView';
+import { SettingsView } from './components/SettingsView';
 import { useHoloAudioPlayer } from './hooks/useHoloAudioPlayer';
-import type { EqualizerState, PlaylistRecord, SortMode, TabId, TrackRecord } from './types/music';
+import type {
+  AppSettings,
+  EqualizerState,
+  PlaylistRecord,
+  SortMode,
+  TabId,
+  TrackRecord,
+} from './types/music';
 import { formatTime, isSupportedAudioFile, parseAudioFile } from './utils/audioMetadata';
 import {
   clearAllTracksFromDb,
@@ -39,6 +48,7 @@ import {
   savePlaylist,
   saveTracks,
 } from './utils/musicDb';
+import { applyDocumentTheme, loadAppSettings, saveAppSettings } from './utils/themeConfig';
 
 interface ImportProgress {
   current: number;
@@ -46,16 +56,17 @@ interface ImportProgress {
 }
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'songs', label: 'SONGS' },
-  { id: 'artists', label: 'ARTISTS' },
-  { id: 'albums', label: 'ALBUMS' },
-  { id: 'playlists', label: 'PLAYLISTS' },
+  { id: 'songs', label: 'Tracks' },
+  { id: 'artists', label: 'Artists' },
+  { id: 'albums', label: 'Albums' },
+  { id: 'playlists', label: 'Playlists' },
 ];
 
 export default function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
 
+  const [settings, setSettings] = useState<AppSettings>(() => loadAppSettings());
   const [tracks, setTracks] = useState<TrackRecord[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistRecord[]>([]);
   const [isLoadingDb, setIsLoadingDb] = useState(true);
@@ -63,7 +74,7 @@ export default function App() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<TabId>('songs');
-  const [sortMode, setSortMode] = useState<SortMode>('title');
+  const [sortMode, setSortMode] = useState<SortMode>(() => loadAppSettings().defaultSort);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -71,6 +82,8 @@ export default function App() {
   const [selectedAlbumKey, setSelectedAlbumKey] = useState<string | null>(null);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
 
+  const [showNowPlaying, setShowNowPlaying] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [showSortDialog, setShowSortDialog] = useState(false);
   const [showCreatePlaylist, setShowCreatePlaylist] = useState(false);
@@ -86,6 +99,10 @@ export default function App() {
   const [showEqualizer, setShowEqualizer] = useState(false);
 
   const player = useHoloAudioPlayer({ equalizer });
+
+  useEffect(() => {
+    applyDocumentTheme(settings.theme);
+  }, [settings.theme]);
 
   // Load persisted library and playlists from IndexedDB on launch
   useEffect(() => {
@@ -126,6 +143,14 @@ export default function App() {
     }
   }, []);
 
+  const handleSettingsChange = (next: AppSettings) => {
+    if (next.defaultSort !== settings.defaultSort) {
+      setSortMode(next.defaultSort);
+    }
+    setSettings(next);
+    saveAppSettings(next);
+  };
+
   const handleEqualizerChange = (next: EqualizerState) => {
     setEqualizer(next);
     saveEqualizerState(next);
@@ -165,11 +190,11 @@ export default function App() {
           return Array.from(map.values());
         });
         setStatusMessage(
-          `Saved ${parsedBatch.length} local ${parsedBatch.length === 1 ? 'track' : 'tracks'} to IndexedDB.`
+          `Added ${parsedBatch.length} ${parsedBatch.length === 1 ? 'track' : 'tracks'}.`
         );
       } catch (err) {
         setStatusMessage(
-          err instanceof Error ? err.message : 'Failed to persist audio files to IndexedDB.'
+          err instanceof Error ? err.message : 'Failed to save audio files to IndexedDB.'
         );
       }
     }
@@ -187,7 +212,6 @@ export default function App() {
     setTracks((prev) => prev.filter((t) => t.id !== trackId));
     try {
       await deleteTrackFromDb(trackId);
-      // Also clean references from playlists
       const updatedPlaylists: PlaylistRecord[] = [];
       for (const pl of playlists) {
         if (pl.trackIds.includes(trackId)) {
@@ -210,13 +234,14 @@ export default function App() {
 
   const handleClearLibrary = async () => {
     setShowImportMenu(false);
+    setShowNowPlaying(false);
     player.clearPlayback();
     setTracks([]);
     setSelectedArtist(null);
     setSelectedAlbumKey(null);
     try {
       await clearAllTracksFromDb();
-      setStatusMessage('Cleared saved local audio library.');
+      setStatusMessage('Library cleared.');
     } catch {
       setStatusMessage('Failed to clear IndexedDB track store.');
     }
@@ -323,15 +348,15 @@ export default function App() {
       await saveTracks(updatedRecords);
       setStatusMessage(
         artworkDataUrl
-          ? `Updated album art for ${updatedRecords.length} ${
+          ? `Updated cover art (${updatedRecords.length} ${
               updatedRecords.length === 1 ? 'track' : 'tracks'
-            }.`
-          : `Cleared album art for ${updatedRecords.length} ${
+            }).`
+          : `Cleared cover art (${updatedRecords.length} ${
               updatedRecords.length === 1 ? 'track' : 'tracks'
-            }.`
+            }).`
       );
     } catch {
-      setStatusMessage('Failed to save updated album art to IndexedDB.');
+      setStatusMessage('Failed to save cover art to IndexedDB.');
     }
   };
 
@@ -391,7 +416,12 @@ export default function App() {
       if (q && !key.toLowerCase().includes(q) && !t.title.toLowerCase().includes(q)) continue;
       let group = groups.get(key);
       if (!group) {
-        group = { name: key, tracks: [], albums: new Set(), artwork: t.artworkDataUrl };
+        group = {
+          name: key,
+          tracks: [],
+          albums: new Set(),
+          artwork: !brokenArtIds.has(t.id) ? t.artworkDataUrl : null,
+        };
         groups.set(key, group);
       }
       group.tracks.push(t);
@@ -478,6 +508,10 @@ export default function App() {
 
   const seekMax = player.duration > 0 ? player.duration : player.currentTrack?.durationSec || 1;
   const seekPercent = seekMax > 0 ? Math.min(100, (player.currentTime / seekMax) * 100) : 0;
+  const queuePositionLabel =
+    player.currentTrack && player.queueIndex >= 0 && player.queueLength > 0
+      ? `${player.queueIndex + 1} / ${player.queueLength}`
+      : null;
 
   const renderTrackRow = (
     track: TrackRecord,
@@ -488,79 +522,89 @@ export default function App() {
     const isCurrent = player.currentTrack?.id === track.id;
     const isArtBroken = brokenArtIds.has(track.id);
     const hasValidArt = Boolean(track.artworkDataUrl) && !isArtBroken;
+
     return (
       <div
         key={`${playlistContextId || 'lib'}-${track.id}-${index}`}
-        className={`holo-list-row flex min-h-[60px] items-center gap-3 pr-2 ${
+        className={`holo-list-row flex min-h-[60px] items-center gap-2 pr-2 ${
           isCurrent ? 'holo-list-row-active' : ''
         }`}
       >
-        {/* 4px Holo Blue Active Indicator */}
+        {/* Active Indicator */}
         <div
-          className={`w-1 self-stretch shrink-0 ${
-            isCurrent ? 'bg-[#33B5E5] shadow-[0_0_8px_#33B5E5]' : 'bg-transparent'
-          }`}
+          className="w-1 shrink-0 self-stretch"
+          style={
+            isCurrent
+              ? {
+                  backgroundColor: 'var(--accent)',
+                  boxShadow: '0 0 8px var(--accent-glow)',
+                }
+              : { backgroundColor: 'transparent' }
+          }
         />
 
-        {/* Clickable Track Main Area */}
+        {/* Main Row Click Target */}
         <button
           type="button"
           onClick={() => player.playTrackFromList(list, index)}
-          className="flex min-w-0 flex-1 items-center gap-3 py-2 text-left focus-visible:outline-2 focus-visible:outline-[#33B5E5]"
+          className="flex min-w-0 flex-1 items-center gap-3 py-2 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
         >
-          {/* Album Artwork or Holo Music Note */}
-          <div className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden border border-white/15 bg-[#12171d] shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]">
-            {hasValidArt && track.artworkDataUrl ? (
-              <img
-                src={track.artworkDataUrl}
-                alt={`${track.album} cover`}
-                onError={() => markArtworkCorrupted(track.id)}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <HoloMusicNoteIcon
-                className={`h-5 w-5 ${isCurrent ? 'text-[#33B5E5]' : 'text-white/40'}`}
-              />
-            )}
-            {isCurrent && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/55">
-                {player.isPlaying ? (
-                  <HoloPlayIcon className="h-5 w-5 text-[#33B5E5]" />
-                ) : (
-                  <HoloPauseIcon className="h-5 w-5 text-[#33B5E5]" />
-                )}
-              </div>
-            )}
-          </div>
+          {settings.showListArtwork && (
+            <div className="theme-artwork-box relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden">
+              {hasValidArt && track.artworkDataUrl ? (
+                <img
+                  src={track.artworkDataUrl}
+                  alt={`${track.album} cover`}
+                  onError={() => markArtworkCorrupted(track.id)}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <HoloMusicNoteIcon
+                  className={`h-5 w-5 ${
+                    isCurrent ? 'text-[var(--accent)]' : 'text-[var(--text-dim)]'
+                  }`}
+                />
+              )}
+              {isCurrent && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                  {player.isPlaying ? (
+                    <HoloPlayIcon className="h-5 w-5 text-[var(--accent)]" />
+                  ) : (
+                    <HoloPauseIcon className="h-5 w-5 text-[var(--accent)]" />
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="min-w-0 flex-1">
             <div
               className={`truncate text-sm font-medium ${
-                isCurrent ? 'font-semibold text-[#33B5E5]' : 'text-white'
+                isCurrent ? 'font-semibold text-[var(--accent)]' : 'text-[var(--text-primary)]'
               }`}
             >
               {track.title}
             </div>
-            <div className="mt-0.5 truncate text-xs text-white/60">
+            <div className="mt-0.5 truncate text-xs text-[var(--text-secondary)]">
               {track.artist}
               {track.album ? ` · ${track.album}` : ''}
             </div>
           </div>
 
-          <span className="shrink-0 font-mono text-xs tabular-nums text-white/55">
+          <span className="shrink-0 font-mono text-xs tabular-nums text-[var(--text-dim)]">
             {formatTime(track.durationSec)}
           </span>
         </button>
 
         {/* Row Quick Actions */}
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center">
           <button
             type="button"
-            title={hasValidArt ? 'Edit album art' : 'Set or generate album art'}
+            title={hasValidArt ? 'Edit Album Art' : 'Set Album Art'}
             aria-label={`Edit album art for ${track.title}`}
             onClick={() => openAlbumArtEditor(track)}
-            className={`flex h-9 w-9 items-center justify-center hover:bg-[#33B5E5]/15 hover:text-[#33B5E5] ${
-              !hasValidArt ? 'text-[#33B5E5]/85' : 'text-white/55'
+            className={`flex min-h-[40px] min-w-[40px] items-center justify-center hover:text-[var(--accent)] ${
+              !hasValidArt ? 'text-[var(--accent)]' : 'text-[var(--text-dim)]'
             }`}
           >
             <HoloImageEditIcon className="h-4 w-4" />
@@ -568,10 +612,10 @@ export default function App() {
 
           <button
             type="button"
-            title="Add to playlist"
+            title="Add to Playlist"
             aria-label={`Add ${track.title} to playlist`}
             onClick={() => setAddToPlaylistTrack(track)}
-            className="flex h-9 w-9 items-center justify-center text-white/55 hover:bg-[#33B5E5]/15 hover:text-[#33B5E5]"
+            className="flex min-h-[40px] min-w-[40px] items-center justify-center text-[var(--text-dim)] hover:text-[var(--accent)]"
           >
             <HoloPlaylistAddIcon className="h-4 w-4" />
           </button>
@@ -579,20 +623,20 @@ export default function App() {
           {playlistContextId ? (
             <button
               type="button"
-              title="Remove from playlist"
+              title="Remove from Playlist"
               aria-label={`Remove ${track.title} from playlist`}
               onClick={() => void handleToggleTrackInPlaylist(playlistContextId, track.id)}
-              className="flex h-9 w-9 items-center justify-center text-white/45 hover:bg-red-500/15 hover:text-red-300"
+              className="flex min-h-[40px] min-w-[40px] items-center justify-center text-[var(--text-dim)] hover:text-[var(--danger-text)]"
             >
               <HoloCloseIcon className="h-3.5 w-3.5" />
             </button>
           ) : (
             <button
               type="button"
-              title="Remove from library"
+              title="Remove Track"
               aria-label={`Remove ${track.title} from library`}
               onClick={() => void handleRemoveTrack(track.id)}
-              className="flex h-9 w-9 items-center justify-center text-white/40 hover:bg-red-500/15 hover:text-red-300"
+              className="flex min-h-[40px] min-w-[40px] items-center justify-center text-[var(--text-dim)] hover:text-[var(--danger-text)]"
             >
               <HoloTrashIcon className="h-4 w-4" />
             </button>
@@ -603,7 +647,7 @@ export default function App() {
   };
 
   return (
-    <div className="holo-bg-gradient flex h-dvh w-full flex-col overflow-hidden text-white">
+    <div className="holo-bg-gradient flex h-dvh w-full flex-col overflow-hidden">
       {/* Hidden Real File & Folder Inputs */}
       <input
         ref={fileInputRef}
@@ -622,19 +666,19 @@ export default function App() {
         className="hidden"
       />
 
-      {/* Classic Holo Top Action Bar */}
-      <header className="holo-actionbar-surface relative z-30 flex h-13 shrink-0 items-center justify-between border-b border-[#33B5E5]/60 px-3 sm:px-4">
+      {/* Top Action Bar */}
+      <header className="holo-actionbar-surface relative z-30 flex h-13 shrink-0 items-center justify-between px-3 sm:px-4">
         {searchOpen ? (
           <div className="flex flex-1 items-center gap-2 pr-2">
-            <HoloSearchIcon className="h-5 w-5 shrink-0 text-[#33B5E5]" />
+            <HoloSearchIcon className="h-5 w-5 shrink-0 text-[var(--accent)]" />
             <input
               type="search"
               autoFocus
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search songs, artists, albums..."
-              aria-label="Search local music library"
-              className="min-w-0 flex-1 border-b-2 border-[#33B5E5] bg-transparent py-1 text-sm text-white placeholder-white/40 focus:outline-none"
+              placeholder="Search tracks, artists, albums..."
+              aria-label="Search library"
+              className="min-w-0 flex-1 border-b-2 border-[var(--accent)] bg-transparent py-1 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] focus:outline-none"
             />
             <button
               type="button"
@@ -643,38 +687,35 @@ export default function App() {
                 setSearchQuery('');
                 setSearchOpen(false);
               }}
-              className="flex h-9 w-9 items-center justify-center text-white/75 hover:text-white"
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             >
               <HoloCloseIcon className="h-4 w-4" />
             </button>
           </div>
         ) : (
           <div className="flex min-w-0 items-center gap-2.5">
-            <div className="holo-btn-primary flex h-8 w-8 shrink-0 items-center justify-center">
-              <HoloMusicNoteIcon className="h-4 w-4 text-white" />
-            </div>
+            <HoloMusicNoteIcon className="h-5 w-5 shrink-0 text-[var(--accent)]" />
             <div className="min-w-0">
-              <h1 className="truncate text-base font-semibold tracking-tight text-[#33B5E5]">
-                Holo Music
+              <h1 className="truncate text-base font-semibold tracking-tight text-[var(--accent)]">
+                Music Player
               </h1>
-              <p className="truncate text-[11px] text-white/65">
-                {tracks.length === 0
-                  ? 'Local Audio Library'
-                  : `${tracks.length} ${tracks.length === 1 ? 'track' : 'tracks'} · ${playlists.length} ${playlists.length === 1 ? 'playlist' : 'playlists'}`}
+              <p className="truncate font-mono text-[11px] tabular-nums text-[var(--text-secondary)]">
+                {tracks.length} {tracks.length === 1 ? 'track' : 'tracks'} · {playlists.length}{' '}
+                {playlists.length === 1 ? 'playlist' : 'playlists'}
               </p>
             </div>
           </div>
         )}
 
-        {/* Action Bar Buttons separated by translucent Holo dividers */}
-        <div className="flex shrink-0 items-center divide-x divide-white/12">
+        {/* Action Bar Buttons */}
+        <div className="flex shrink-0 items-center divide-x divide-[var(--divider)]">
           {!searchOpen && (
             <button
               type="button"
-              title="Search Library"
-              aria-label="Search Library"
+              title="Search"
+              aria-label="Search"
               onClick={() => setSearchOpen(true)}
-              className="flex h-10 w-10 items-center justify-center text-white/85 hover:bg-white/5 hover:text-[#33B5E5]"
+              className="flex min-h-[44px] min-w-[42px] items-center justify-center text-[var(--text-primary)] hover:text-[var(--accent)]"
             >
               <HoloSearchIcon className="h-5 w-5" />
             </button>
@@ -682,33 +723,27 @@ export default function App() {
 
           <button
             type="button"
-            title="5-Band Equalizer"
-            aria-label="Open 5-Band Equalizer"
+            title="Equalizer"
+            aria-label="Equalizer"
             aria-expanded={showEqualizer}
             onClick={() => {
               player.ensureWebAudioGraph();
               setShowEqualizer((prev) => !prev);
             }}
-            className={`relative flex h-10 items-center gap-1.5 px-2.5 text-xs font-semibold hover:bg-white/5 ${
-              equalizer.enabled ? 'text-[#33B5E5]' : 'text-white/75'
+            className={`flex min-h-[44px] items-center gap-1.5 px-2.5 text-xs font-semibold ${
+              equalizer.enabled ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'
             }`}
           >
             <HoloEqualizerIcon className="h-5 w-5" />
             <span className="hidden sm:inline">EQ</span>
-            {equalizer.enabled && (
-              <span
-                className="h-1.5 w-1.5 rounded-full bg-[#33B5E5] shadow-[0_0_6px_#33B5E5]"
-                aria-hidden="true"
-              />
-            )}
           </button>
 
           <button
             type="button"
-            title="Sort Tracks"
-            aria-label="Sort Tracks"
+            title="Sort"
+            aria-label="Sort"
             onClick={() => setShowSortDialog(true)}
-            className="flex h-10 w-10 items-center justify-center text-white/85 hover:bg-white/5 hover:text-[#33B5E5]"
+            className="flex min-h-[44px] min-w-[42px] items-center justify-center text-[var(--text-primary)] hover:text-[var(--accent)]"
           >
             <HoloSortIcon className="h-5 w-5" />
           </button>
@@ -716,57 +751,70 @@ export default function App() {
           <div className="relative">
             <button
               type="button"
-              title="Import Local Music"
-              aria-label="Import Local Music"
+              title="Add Music"
+              aria-label="Add Music"
               aria-expanded={showImportMenu}
               onClick={() => setShowImportMenu((prev) => !prev)}
-              className="flex h-10 items-center gap-1.5 px-2.5 text-xs font-semibold text-white/90 hover:bg-white/5 hover:text-[#33B5E5]"
+              className="flex min-h-[44px] items-center gap-1.5 px-2.5 text-xs font-semibold text-[var(--text-primary)] hover:text-[var(--accent)]"
             >
-              <HoloFolderMusicIcon className="h-5 w-5 text-[#33B5E5]" />
-              <span className="hidden sm:inline">Add Music</span>
+              <HoloFolderMusicIcon className="h-5 w-5 text-[var(--accent)]" />
+              <span className="hidden sm:inline">Add</span>
             </button>
 
             {showImportMenu && (
               <div
-                className="holo-dialog-surface absolute right-0 top-11 z-50 w-52 divide-y divide-white/12 text-left text-sm"
+                className="holo-dialog-surface absolute right-0 top-12 z-50 w-48 divide-y divide-[var(--divider)] text-left text-sm"
                 role="menu"
               >
                 <button
                   type="button"
                   role="menuitem"
                   onClick={() => fileInputRef.current?.click()}
-                  className="block w-full px-4 py-3 text-white/90 hover:bg-[#33B5E5]/20"
+                  className="block min-h-[44px] w-full px-4 py-2.5 hover:bg-[var(--surface-row-hover)]"
                 >
-                  Select Audio Files...
+                  Select Audio Files
                 </button>
                 <button
                   type="button"
                   role="menuitem"
                   onClick={() => folderInputRef.current?.click()}
-                  className="block w-full px-4 py-3 text-white/90 hover:bg-[#33B5E5]/20"
+                  className="block min-h-[44px] w-full px-4 py-2.5 hover:bg-[var(--surface-row-hover)]"
                 >
-                  Select Music Folder...
+                  Select Music Folder
                 </button>
                 {tracks.length > 0 && (
                   <button
                     type="button"
                     role="menuitem"
                     onClick={() => void handleClearLibrary()}
-                    className="block w-full px-4 py-3 text-red-300 hover:bg-red-500/20"
+                    className="block min-h-[44px] w-full px-4 py-2.5 text-[var(--danger-text)] hover:bg-[var(--surface-row-hover)]"
                   >
-                    Clear Saved Library
+                    Clear Library
                   </button>
                 )}
               </div>
             )}
           </div>
+
+          <button
+            type="button"
+            title="Settings"
+            aria-label="Settings"
+            onClick={() => {
+              setShowImportMenu(false);
+              setShowSettings(true);
+            }}
+            className="flex min-h-[44px] min-w-[42px] items-center justify-center text-[var(--text-primary)] hover:text-[var(--accent)]"
+          >
+            <HoloSettingsIcon className="h-5 w-5" />
+          </button>
         </div>
       </header>
 
-      {/* Classic Holo Action Bar Tab Strip */}
+      {/* Navigation Tabs */}
       <nav
-        aria-label="Music Library Sections"
-        className="holo-tabbar-surface grid shrink-0 grid-cols-4 divide-x divide-white/12"
+        aria-label="Library Sections"
+        className="holo-tabbar-surface grid shrink-0 grid-cols-4 divide-x divide-[var(--divider)]"
       >
         {TABS.map((tab) => {
           const isActive = activeTab === tab.id;
@@ -778,28 +826,35 @@ export default function App() {
                 setActiveTab(tab.id);
                 setShowImportMenu(false);
               }}
-              className={`relative flex h-11 items-center justify-center px-2 text-xs font-bold tracking-wider whitespace-nowrap transition-colors ${
-                isActive ? 'text-white' : 'text-white/55 hover:text-white/85'
+              style={{ background: isActive ? 'var(--tab-active-bg)' : undefined }}
+              className={`relative flex h-11 items-center justify-center px-2 text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-colors ${
+                isActive
+                  ? 'text-[var(--text-primary)]'
+                  : 'text-[var(--text-dim)] hover:text-[var(--text-secondary)]'
               }`}
             >
               <span>{tab.label}</span>
               {isActive && (
-                <span className="holo-tab-active-glow absolute inset-x-0 bottom-0 h-[3px] bg-[#33B5E5]" />
+                <span className="holo-tab-active-glow absolute inset-x-0 bottom-0 h-[3px]" />
               )}
             </button>
           );
         })}
       </nav>
 
-      {/* Import / Status Banner (when active) */}
+      {/* Status Banner */}
       {(importProgress || statusMessage || player.playbackError) && (
         <div
           role="status"
-          className="flex shrink-0 items-center justify-between gap-3 border-b border-[#33B5E5]/35 bg-[#0f1c26]/95 px-4 py-2 text-xs"
+          className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--divider)] px-4 py-2 text-xs"
+          style={{
+            backgroundColor: 'var(--surface-banner)',
+            color: 'var(--text-banner)',
+          }}
         >
-          <span className="text-[#9ee3fb]">
+          <span>
             {importProgress
-              ? `Reading audio metadata & album art: ${importProgress.current} / ${importProgress.total}...`
+              ? `Reading audio metadata: ${importProgress.current} / ${importProgress.total}...`
               : player.playbackError || statusMessage}
           </span>
           {!importProgress && (
@@ -807,7 +862,7 @@ export default function App() {
               type="button"
               onClick={() => setStatusMessage(null)}
               aria-label="Dismiss message"
-              className="text-white/60 hover:text-white"
+              className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             >
               <HoloCloseIcon className="h-3.5 w-3.5" />
             </button>
@@ -815,7 +870,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Scrollable Content Region */}
+      {/* Main Scrollable Library Content */}
       <main
         className="holo-scroll min-h-0 flex-1 overflow-y-auto"
         onClick={() => {
@@ -824,58 +879,54 @@ export default function App() {
       >
         {isLoadingDb ? (
           <div className="flex h-full flex-col items-center justify-center p-8 text-center">
-            <div className="h-7 w-7 animate-spin rounded-full border-2 border-[#33B5E5] border-t-transparent" />
-            <p className="mt-3 text-sm text-white/70">Opening local IndexedDB music library...</p>
+            <div className="h-7 w-7 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
+            <p className="mt-3 text-sm text-[var(--text-secondary)]">Loading local library...</p>
           </div>
         ) : tracks.length === 0 && activeTab !== 'playlists' ? (
-          /* Clean Holo Empty State — Zero Sample Tracks */
-          <div className="flex h-full flex-col items-center justify-center px-6 py-10 text-center">
-            <div className="holo-dialog-surface max-w-md border-t-2 border-t-[#33B5E5] p-6 sm:p-7">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center border border-[#33B5E5]/45 bg-[#33B5E5]/12 shadow-[0_0_20px_rgba(51,181,229,0.2)]">
-                <HoloFolderMusicIcon className="h-8 w-8 text-[#33B5E5]" />
-              </div>
+          <div className="flex h-full w-full flex-col items-center justify-center px-6 py-10 text-center">
+            <HoloFolderMusicIcon className="h-12 w-12 text-[var(--accent)]" />
 
-              <h2 className="mt-4 text-lg font-semibold text-white">No Local Audio Loaded</h2>
-              <p className="mt-2 text-sm leading-relaxed text-white/70">
-                Select MP3, FLAC, WAV, M4A, or OGG files from your device. Holo Music extracts
-                track titles, artists, albums, and embedded album art and saves them in IndexedDB so
-                your library stays ready on next launch.
-              </p>
+            <h2 className="mt-4 text-base font-semibold text-[var(--text-primary)]">
+              No Local Tracks
+            </h2>
+            <p className="mt-1.5 max-w-sm text-xs leading-relaxed text-[var(--text-secondary)]">
+              Choose MP3, FLAC, WAV, M4A, or OGG files or a music folder from your device. Tracks
+              and playlists are saved locally.
+            </p>
 
-              <div className="mt-6 flex flex-col gap-2.5 sm:flex-row sm:justify-center">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="holo-btn-primary flex min-h-11 items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white"
-                >
-                  <HoloFolderMusicIcon className="h-4 w-4" />
-                  <span>Select Music Files</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => folderInputRef.current?.click()}
-                  className="holo-btn flex min-h-11 items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium text-[#33B5E5]"
-                >
-                  <span>Select Music Folder</span>
-                </button>
-              </div>
+            <div className="mt-6 flex w-full max-w-xs flex-col gap-2.5 sm:max-w-sm sm:flex-row sm:justify-center">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="holo-btn-primary flex min-h-11 flex-1 items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold"
+              >
+                <HoloFolderMusicIcon className="h-4 w-4" />
+                <span>Select Files</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => folderInputRef.current?.click()}
+                className="holo-btn flex min-h-11 flex-1 items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium text-[var(--accent)]"
+              >
+                <span>Select Folder</span>
+              </button>
             </div>
           </div>
         ) : activeTab === 'songs' ? (
           <div>
             <div className="holo-subheader-surface flex items-center justify-between px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider">
-              <span className="text-[#33B5E5]">
+              <span className="text-[var(--accent)]">
                 {searchQuery.trim()
-                  ? `SEARCH: "${searchQuery.trim()}"`
-                  : `ALL LOCAL TRACKS · SORTED BY ${sortMode}`}
+                  ? `Search: "${searchQuery.trim()}"`
+                  : `Tracks · ${sortMode}`}
               </span>
-              <span className="font-mono text-white/60">
-                {sortedTracks.length} {sortedTracks.length === 1 ? 'TRACK' : 'TRACKS'}
+              <span className="font-mono tabular-nums text-[var(--text-dim)]">
+                {sortedTracks.length} {sortedTracks.length === 1 ? 'track' : 'tracks'}
               </span>
             </div>
 
             {sortedTracks.length === 0 ? (
-              <div className="px-6 py-12 text-center text-sm text-white/60">
+              <div className="px-6 py-12 text-center text-sm text-[var(--text-secondary)]">
                 No tracks matched &ldquo;{searchQuery}&rdquo;.
               </div>
             ) : (
@@ -891,20 +942,20 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setSelectedArtist(null)}
-                  className="holo-btn flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-[#33B5E5]"
+                  className="holo-btn flex min-h-[38px] items-center gap-1 px-2.5 py-1 text-xs font-semibold text-[var(--accent)]"
                 >
                   <HoloBackIcon className="h-4 w-4" />
-                  <span>All Artists</span>
+                  <span>Artists</span>
                 </button>
                 <div className="min-w-0 px-3 text-center">
-                  <div className="truncate text-xs font-bold uppercase tracking-wider text-white">
+                  <div className="truncate text-xs font-bold uppercase tracking-wider text-[var(--text-primary)]">
                     {activeArtistGroup.name}
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => player.playTrackFromList(activeArtistGroup.tracks, 0)}
-                  className="holo-btn-primary px-3 py-1 text-xs font-semibold text-white"
+                  className="holo-btn-primary min-h-[38px] px-3 py-1 text-xs font-semibold"
                 >
                   Play All
                 </button>
@@ -918,8 +969,10 @@ export default function App() {
           ) : (
             <div>
               <div className="holo-subheader-surface flex items-center justify-between px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider">
-                <span className="text-[#33B5E5]">ARTISTS</span>
-                <span className="font-mono text-white/60">{artistsSummary.length} ARTISTS</span>
+                <span className="text-[var(--accent)]">Artists</span>
+                <span className="font-mono tabular-nums text-[var(--text-dim)]">
+                  {artistsSummary.length}
+                </span>
               </div>
               {artistsSummary.map((artist) => (
                 <button
@@ -928,29 +981,33 @@ export default function App() {
                   onClick={() => setSelectedArtist(artist.name)}
                   className="holo-list-row flex w-full items-center gap-3 px-4 py-3 text-left"
                 >
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden border border-white/15 bg-[#12171d]">
+                  <div className="theme-artwork-box flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden">
                     {artist.artwork ? (
                       <img
                         src={artist.artwork}
                         alt={artist.name}
                         onError={() => {
-                          const broken = artist.tracks.find((t) => t.artworkDataUrl === artist.artwork);
+                          const broken = artist.tracks.find(
+                            (t) => t.artworkDataUrl === artist.artwork
+                          );
                           if (broken) markArtworkCorrupted(broken.id);
                         }}
                         className="h-full w-full object-cover"
                       />
                     ) : (
-                      <HoloMusicNoteIcon className="h-5 w-5 text-[#33B5E5]/70" />
+                      <HoloMusicNoteIcon className="h-5 w-5 text-[var(--accent)]" />
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold text-white">{artist.name}</div>
-                    <div className="mt-0.5 text-xs text-white/60">
+                    <div className="truncate text-sm font-semibold text-[var(--text-primary)]">
+                      {artist.name}
+                    </div>
+                    <div className="mt-0.5 text-xs text-[var(--text-secondary)]">
                       {artist.albums.size} {artist.albums.size === 1 ? 'album' : 'albums'} ·{' '}
                       {artist.tracks.length} {artist.tracks.length === 1 ? 'track' : 'tracks'}
                     </div>
                   </div>
-                  <span className="text-xs font-semibold text-[#33B5E5]">Open ›</span>
+                  <span className="text-xs font-semibold text-[var(--accent)]">Open</span>
                 </button>
               ))}
             </div>
@@ -962,21 +1019,23 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setSelectedAlbumKey(null)}
-                  className="holo-btn flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-[#33B5E5]"
+                  className="holo-btn flex min-h-[38px] items-center gap-1 px-2.5 py-1 text-xs font-semibold text-[var(--accent)]"
                 >
                   <HoloBackIcon className="h-4 w-4" />
-                  <span>All Albums</span>
+                  <span>Albums</span>
                 </button>
                 <div className="min-w-0 px-3 text-center">
-                  <div className="truncate text-xs font-bold uppercase tracking-wider text-white">
+                  <div className="truncate text-xs font-bold uppercase tracking-wider text-[var(--text-primary)]">
                     {activeAlbumGroup.album}
                   </div>
-                  <div className="truncate text-[11px] text-white/60">{activeAlbumGroup.artist}</div>
+                  <div className="truncate text-[11px] text-[var(--text-secondary)]">
+                    {activeAlbumGroup.artist}
+                  </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => player.playTrackFromList(activeAlbumGroup.tracks, 0)}
-                  className="holo-btn-primary px-3 py-1 text-xs font-semibold text-white"
+                  className="holo-btn-primary min-h-[38px] px-3 py-1 text-xs font-semibold"
                 >
                   Play Album
                 </button>
@@ -990,8 +1049,10 @@ export default function App() {
           ) : (
             <div>
               <div className="holo-subheader-surface flex items-center justify-between px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider">
-                <span className="text-[#33B5E5]">ALBUMS</span>
-                <span className="font-mono text-white/60">{albumsSummary.length} ALBUMS</span>
+                <span className="text-[var(--accent)]">Albums</span>
+                <span className="font-mono tabular-nums text-[var(--text-dim)]">
+                  {albumsSummary.length}
+                </span>
               </div>
               <div className="grid grid-cols-2 gap-3 p-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
                 {albumsSummary.map((alb) => (
@@ -1001,7 +1062,10 @@ export default function App() {
                     onClick={() => setSelectedAlbumKey(alb.key)}
                     className="holo-btn flex flex-col overflow-hidden text-left"
                   >
-                    <div className="flex aspect-square w-full items-center justify-center overflow-hidden border-b border-white/10 bg-[#101419]">
+                    <div
+                      className="flex aspect-square w-full items-center justify-center overflow-hidden border-b border-[var(--divider)]"
+                      style={{ backgroundColor: 'var(--surface-artwork)' }}
+                    >
                       {alb.artwork ? (
                         <img
                           src={alb.artwork}
@@ -1013,14 +1077,18 @@ export default function App() {
                           className="h-full w-full object-cover"
                         />
                       ) : (
-                        <HoloMusicNoteIcon className="h-10 w-10 text-[#33B5E5]/55" />
+                        <HoloVinylIcon className="h-14 w-14 text-[var(--accent)]" />
                       )}
                     </div>
                     <div className="p-2.5">
-                      <div className="truncate text-xs font-semibold text-white">{alb.album}</div>
-                      <div className="mt-0.5 truncate text-[11px] text-white/60">{alb.artist}</div>
-                      <div className="mt-1 font-mono text-[10px] text-[#33B5E5]">
-                        {alb.tracks.length} {alb.tracks.length === 1 ? 'TRACK' : 'TRACKS'}
+                      <div className="truncate text-xs font-semibold text-[var(--text-primary)]">
+                        {alb.album}
+                      </div>
+                      <div className="mt-0.5 truncate text-[11px] text-[var(--text-secondary)]">
+                        {alb.artist}
+                      </div>
+                      <div className="mt-1 font-mono text-[10px] tabular-nums text-[var(--accent)]">
+                        {alb.tracks.length} {alb.tracks.length === 1 ? 'track' : 'tracks'}
                       </div>
                     </div>
                   </button>
@@ -1028,24 +1096,23 @@ export default function App() {
               </div>
             </div>
           )
-        ) : /* PLAYLISTS TAB */
-        activePlaylist ? (
+        ) : activePlaylist ? (
           <div>
             <div className="holo-subheader-surface flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex min-w-0 items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setSelectedPlaylistId(null)}
-                  className="holo-btn flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-[#33B5E5]"
+                  className="holo-btn flex min-h-[38px] items-center gap-1 px-2.5 py-1 text-xs font-semibold text-[var(--accent)]"
                 >
                   <HoloBackIcon className="h-4 w-4" />
                   <span>Playlists</span>
                 </button>
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-white">
+                  <div className="truncate text-sm font-semibold text-[var(--text-primary)]">
                     {activePlaylist.name}
                   </div>
-                  <div className="text-[11px] text-white/60">
+                  <div className="text-[11px] text-[var(--text-secondary)]">
                     {activePlaylistTracks.length}{' '}
                     {activePlaylistTracks.length === 1 ? 'track' : 'tracks'}
                   </div>
@@ -1056,15 +1123,15 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setPickerPlaylistId(activePlaylist.id)}
-                  className="holo-btn px-3 py-1.5 text-xs font-semibold text-[#33B5E5]"
+                  className="holo-btn min-h-[38px] px-3 py-1.5 text-xs font-semibold text-[var(--accent)]"
                 >
-                  + Add / Remove Tracks
+                  Edit Tracks
                 </button>
                 <button
                   type="button"
                   disabled={activePlaylistTracks.length === 0}
                   onClick={() => player.playTrackFromList(activePlaylistTracks, 0)}
-                  className="holo-btn-primary px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+                  className="holo-btn-primary min-h-[38px] px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
                 >
                   Play All
                 </button>
@@ -1073,15 +1140,13 @@ export default function App() {
 
             {activePlaylistTracks.length === 0 ? (
               <div className="px-6 py-12 text-center">
-                <p className="text-sm text-white/65">
-                  This playlist has no tracks yet.
-                </p>
+                <p className="text-sm text-[var(--text-secondary)]">This playlist is empty.</p>
                 <button
                   type="button"
                   onClick={() => setPickerPlaylistId(activePlaylist.id)}
-                  className="holo-btn-primary mt-4 px-4 py-2 text-xs font-semibold text-white"
+                  className="holo-btn-primary mt-4 px-4 py-2 text-xs font-semibold"
                 >
-                  Add Tracks from Library
+                  Add Tracks
                 </button>
               </div>
             ) : (
@@ -1095,35 +1160,34 @@ export default function App() {
         ) : (
           <div>
             <div className="holo-subheader-surface flex items-center justify-between px-4 py-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#33B5E5]">
-                SAVED PLAYLISTS ({playlists.length})
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--accent)]">
+                Playlists ({playlists.length})
               </span>
               <button
                 type="button"
                 onClick={() => setShowCreatePlaylist(true)}
-                className="holo-btn-primary px-3 py-1.5 text-xs font-semibold text-white"
+                className="holo-btn-primary min-h-[36px] px-3 py-1 text-xs font-semibold"
               >
-                + New Playlist
+                New Playlist
               </button>
             </div>
 
             {playlists.length === 0 ? (
               <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
-                <div className="holo-dialog-surface max-w-sm border-t-2 border-t-[#33B5E5] p-6">
-                  <HoloPlaylistAddIcon className="mx-auto h-9 w-9 text-[#33B5E5]" />
-                  <h2 className="mt-3 text-base font-semibold text-white">No Playlists Yet</h2>
-                  <p className="mt-1.5 text-xs leading-relaxed text-white/65">
-                    Create custom playlists and save them locally in IndexedDB alongside your music
-                    library.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setShowCreatePlaylist(true)}
-                    className="holo-btn-primary mt-4 px-4 py-2 text-xs font-semibold text-white"
-                  >
-                    Create First Playlist
-                  </button>
-                </div>
+                <HoloPlaylistAddIcon className="h-10 w-10 text-[var(--accent)]" />
+                <h2 className="mt-3 text-base font-semibold text-[var(--text-primary)]">
+                  No Playlists
+                </h2>
+                <p className="mt-1.5 max-w-xs text-xs leading-relaxed text-[var(--text-secondary)]">
+                  Create playlists and store track lists locally.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowCreatePlaylist(true)}
+                  className="holo-btn-primary mt-5 min-h-[42px] px-5 py-2 text-xs font-semibold"
+                >
+                  Create Playlist
+                </button>
               </div>
             ) : (
               <div>
@@ -1147,7 +1211,7 @@ export default function App() {
                         onClick={() => setSelectedPlaylistId(pl.id)}
                         className="flex min-w-0 flex-1 items-center gap-3 text-left"
                       >
-                        <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden border border-white/15 bg-[#12171d]">
+                        <div className="theme-artwork-box flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden">
                           {cover ? (
                             <img
                               src={cover}
@@ -1158,12 +1222,14 @@ export default function App() {
                               className="h-full w-full object-cover"
                             />
                           ) : (
-                            <HoloPlaylistAddIcon className="h-5 w-5 text-[#33B5E5]" />
+                            <HoloPlaylistAddIcon className="h-5 w-5 text-[var(--accent)]" />
                           )}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-semibold text-white">{pl.name}</div>
-                          <div className="mt-0.5 text-xs text-white/60">
+                          <div className="truncate text-sm font-semibold text-[var(--text-primary)]">
+                            {pl.name}
+                          </div>
+                          <div className="mt-0.5 text-xs text-[var(--text-secondary)]">
                             {resolvedTracks.length}{' '}
                             {resolvedTracks.length === 1 ? 'track' : 'tracks'} ·{' '}
                             {formatTime(totalSec)}
@@ -1177,14 +1243,14 @@ export default function App() {
                           disabled={resolvedTracks.length === 0}
                           onClick={() => player.playTrackFromList(resolvedTracks, 0)}
                           aria-label={`Play ${pl.name}`}
-                          className="holo-btn flex h-9 w-9 items-center justify-center text-[#33B5E5] disabled:opacity-35"
+                          className="holo-btn flex h-10 w-10 items-center justify-center text-[var(--accent)] disabled:opacity-35"
                         >
                           <HoloPlayIcon className="h-4 w-4" />
                         </button>
                         <button
                           type="button"
                           onClick={() => setPickerPlaylistId(pl.id)}
-                          className="holo-btn px-2.5 py-1.5 text-xs font-medium text-white/85"
+                          className="holo-btn min-h-[40px] px-2.5 py-1.5 text-xs font-medium"
                         >
                           Tracks
                         </button>
@@ -1192,7 +1258,7 @@ export default function App() {
                           type="button"
                           aria-label={`Delete ${pl.name}`}
                           onClick={() => void handleDeletePlaylist(pl.id)}
-                          className="holo-btn flex h-9 w-9 items-center justify-center text-white/55 hover:text-red-300"
+                          className="holo-btn flex h-10 w-10 items-center justify-center text-[var(--text-dim)] hover:text-[var(--danger-text)]"
                         >
                           <HoloTrashIcon className="h-4 w-4" />
                         </button>
@@ -1206,31 +1272,32 @@ export default function App() {
         )}
       </main>
 
-      {/* Docked Holo Bottom Playback Bar */}
-      <footer className="holo-dock-surface shrink-0 border-t-2 border-t-[#33B5E5]">
-        {/* Now Playing Metadata & Quick Controls */}
-        <div className="flex items-center justify-between gap-3 px-3 pt-2.5 sm:px-4">
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            <button
-              type="button"
-              disabled={!player.currentTrack}
-              title={
-                player.currentTrack
-                  ? 'Tap to edit or generate album art'
-                  : 'Album art'
-              }
-              aria-label={
-                player.currentTrack
-                  ? `Edit album art for ${player.currentTrack.title}`
-                  : 'Album art'
-              }
-              onClick={() => {
-                if (player.currentTrack) {
-                  openAlbumArtEditor(player.currentTrack);
-                }
-              }}
-              className="group relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden border border-[#33B5E5]/40 bg-[#0d1218] disabled:cursor-default"
-            >
+      {/* Compact Docked Mini-Player (Tap track info to open full-screen Now Playing) */}
+      <footer className="holo-dock-surface relative shrink-0">
+        {/* Top Edge Thin Progress Indicator */}
+        <div
+          className="h-[2px] w-full"
+          style={{ backgroundColor: 'var(--seek-track-bg)' }}
+          aria-hidden="true"
+        >
+          <div
+            className="h-full transition-[width] duration-150"
+            style={{
+              width: `${seekPercent}%`,
+              backgroundColor: 'var(--accent)',
+            }}
+          />
+        </div>
+
+        <div className="flex h-[62px] items-stretch justify-between">
+          {/* Tappable Mini-Player Track Area -> Opens Full-Screen Now Playing */}
+          <button
+            type="button"
+            onClick={() => setShowNowPlaying(true)}
+            aria-label="Open Now Playing screen"
+            className="flex min-w-0 flex-1 items-center gap-3 px-3 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+          >
+            <div className="theme-artwork-box flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden">
               {player.currentTrack?.artworkDataUrl &&
               !brokenArtIds.has(player.currentTrack.id) ? (
                 <img
@@ -1244,158 +1311,104 @@ export default function App() {
                   className="h-full w-full object-cover"
                 />
               ) : (
-                <HoloMusicNoteIcon className="h-5 w-5 text-[#33B5E5]" />
+                <HoloVinylIcon className="h-7 w-7 text-[var(--accent)]" />
               )}
-              {player.currentTrack && (
-                <span className="absolute inset-0 flex items-center justify-center bg-black/55 opacity-0 transition-opacity group-hover:opacity-100">
-                  <HoloImageEditIcon className="h-4 w-4 text-[#33B5E5]" />
-                </span>
-              )}
-            </button>
+            </div>
 
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-semibold text-white">
-                {player.currentTrack ? player.currentTrack.title : 'Select a track to play'}
+              <div className="truncate text-sm font-semibold text-[var(--text-primary)]">
+                {player.currentTrack ? player.currentTrack.title : 'No track playing'}
               </div>
-              <div className="truncate text-xs text-[#33B5E5]">
+              <div className="truncate text-xs text-[var(--accent)]">
                 {player.currentTrack
-                  ? `${player.currentTrack.artist} · ${player.currentTrack.album}`
-                  : 'Authentic Holo Dark Local Player'}
+                  ? `${player.currentTrack.artist} · ${formatTime(player.currentTime)} / ${formatTime(seekMax)}`
+                  : 'Tap to open Now Playing'}
               </div>
             </div>
-          </div>
+          </button>
 
-          {/* Compact Mode & Playlist Buttons */}
-          <div className="flex shrink-0 items-center gap-1">
-            {player.currentTrack && (
-              <button
-                type="button"
-                title="Edit or generate album art"
-                aria-label="Edit or generate album art"
-                onClick={() => {
-                  if (player.currentTrack) {
-                    openAlbumArtEditor(player.currentTrack);
-                  }
-                }}
-                className="flex h-8 w-8 items-center justify-center text-white/65 hover:text-[#33B5E5]"
-              >
-                <HoloImageEditIcon className="h-4 w-4" />
-              </button>
-            )}
-
+          {/* Integrated Flush Mini-Player Transport Controls */}
+          <div className="flex shrink-0 items-stretch">
             <button
               type="button"
-              title={player.shuffle ? 'Shuffle: On' : 'Shuffle: Off'}
-              aria-label="Toggle Shuffle"
-              aria-pressed={player.shuffle}
-              onClick={player.toggleShuffle}
-              className={`flex h-8 w-8 items-center justify-center border ${
-                player.shuffle
-                  ? 'border-[#33B5E5] bg-[#33B5E5]/20 text-[#33B5E5]'
-                  : 'border-transparent text-white/50 hover:text-white'
-              }`}
+              aria-label="Previous track"
+              onClick={player.playPrevious}
+              className="holo-dock-btn flex w-12 items-center justify-center"
             >
-              <HoloShuffleIcon className="h-4 w-4" />
+              <HoloPrevIcon className="h-5 w-5" />
             </button>
 
             <button
               type="button"
-              title={`Repeat: ${player.repeat}`}
-              aria-label="Cycle Repeat Mode"
-              onClick={player.cycleRepeat}
-              className={`relative flex h-8 w-8 items-center justify-center border ${
-                player.repeat !== 'off'
-                  ? 'border-[#33B5E5] bg-[#33B5E5]/20 text-[#33B5E5]'
-                  : 'border-transparent text-white/50 hover:text-white'
-              }`}
+              aria-label={player.isPlaying ? 'Pause' : 'Play'}
+              onClick={() => player.togglePlayPause(activePlaybackFallbackList)}
+              className="holo-dock-btn-primary flex w-14 items-center justify-center"
             >
-              <HoloRepeatIcon className="h-4 w-4" />
-              {player.repeat === 'one' && (
-                <span className="absolute bottom-0 right-0.5 text-[9px] font-bold text-[#33B5E5]">
-                  1
-                </span>
+              {player.isPlaying ? (
+                <HoloPauseIcon className="h-5 w-5" />
+              ) : (
+                <HoloPlayIcon className="h-5 w-5" />
               )}
             </button>
 
-            {player.currentTrack && (
-              <button
-                type="button"
-                title="Add current track to playlist"
-                aria-label="Add current track to playlist"
-                onClick={() => setAddToPlaylistTrack(player.currentTrack)}
-                className="flex h-8 w-8 items-center justify-center text-white/65 hover:text-[#33B5E5]"
-              >
-                <HoloPlaylistAddIcon className="h-4 w-4" />
-              </button>
-            )}
+            <button
+              type="button"
+              aria-label="Next track"
+              onClick={player.playNext}
+              className="holo-dock-btn flex w-12 items-center justify-center"
+            >
+              <HoloNextIcon className="h-5 w-5" />
+            </button>
           </div>
-        </div>
-
-        {/* Holo SeekBar with Elapsed / Total Time */}
-        <div className="flex items-center gap-2.5 px-3 py-1.5 sm:px-4">
-          <span className="min-w-[38px] font-mono text-xs tabular-nums text-[#33B5E5]">
-            {formatTime(player.currentTime)}
-          </span>
-
-          <input
-            type="range"
-            aria-label="Playback seek bar"
-            min={0}
-            max={seekMax}
-            step={0.5}
-            disabled={!player.currentTrack}
-            value={Math.min(player.currentTime, seekMax)}
-            onChange={(e) => player.seekTo(Number(e.target.value))}
-            className="holo-seekbar flex-1 disabled:opacity-40"
-            style={
-              {
-                '--seek-pct': `${seekPercent}%`,
-                '--seek-color': '#33B5E5',
-              } as CSSProperties
-            }
-          />
-
-          <span className="min-w-[38px] text-right font-mono text-xs tabular-nums text-white/65">
-            {formatTime(player.duration || player.currentTrack?.durationSec || 0)}
-          </span>
-        </div>
-
-        {/* Classic Beveled Holo Transport Controls */}
-        <div className="grid grid-cols-3 gap-2 border-t border-white/12 bg-black/35 px-3 py-2 sm:px-4">
-          <button
-            type="button"
-            aria-label="Previous track"
-            onClick={player.playPrevious}
-            className="holo-btn flex h-11 items-center justify-center text-white"
-          >
-            <HoloPrevIcon className="h-5 w-5" />
-          </button>
-
-          <button
-            type="button"
-            aria-label={player.isPlaying ? 'Pause' : 'Play'}
-            onClick={() => player.togglePlayPause(activePlaybackFallbackList)}
-            className="holo-btn flex h-11 items-center justify-center text-[#33B5E5]"
-          >
-            {player.isPlaying ? (
-              <HoloPauseIcon className="h-6 w-6" />
-            ) : (
-              <HoloPlayIcon className="h-6 w-6" />
-            )}
-          </button>
-
-          <button
-            type="button"
-            aria-label="Next track"
-            onClick={player.playNext}
-            className="holo-btn flex h-11 items-center justify-center text-white"
-          >
-            <HoloNextIcon className="h-5 w-5" />
-          </button>
         </div>
       </footer>
 
-      {/* Slide-Up Holo 5-Band Equalizer Panel */}
+      {/* Full-Screen Now Playing View */}
+      <NowPlayingView
+        isOpen={showNowPlaying}
+        track={player.currentTrack}
+        isPlaying={player.isPlaying}
+        currentTime={player.currentTime}
+        duration={player.duration}
+        shuffle={player.shuffle}
+        repeat={player.repeat}
+        isArtworkBroken={
+          player.currentTrack ? brokenArtIds.has(player.currentTrack.id) : false
+        }
+        queuePositionLabel={queuePositionLabel}
+        onCollapse={() => setShowNowPlaying(false)}
+        onTogglePlayPause={() => player.togglePlayPause(activePlaybackFallbackList)}
+        onPrevious={player.playPrevious}
+        onNext={player.playNext}
+        onSeek={player.seekTo}
+        onToggleShuffle={player.toggleShuffle}
+        onCycleRepeat={player.cycleRepeat}
+        onOpenArtworkEditor={openAlbumArtEditor}
+        onMarkArtworkBroken={markArtworkCorrupted}
+        onOpenEqualizer={() => {
+          player.ensureWebAudioGraph();
+          setShowEqualizer(true);
+        }}
+      />
+
+      {/* Full-Screen Settings View */}
+      <SettingsView
+        isOpen={showSettings}
+        settings={settings}
+        trackCount={tracks.length}
+        playlistCount={playlists.length}
+        onChangeSettings={handleSettingsChange}
+        onOpenEqualizer={() => {
+          player.ensureWebAudioGraph();
+          setShowEqualizer(true);
+        }}
+        onImportFiles={() => fileInputRef.current?.click()}
+        onImportFolder={() => folderInputRef.current?.click()}
+        onClearLibrary={() => void handleClearLibrary()}
+        onClose={() => setShowSettings(false)}
+      />
+
+      {/* Slide-Up 5-Band Equalizer Panel */}
       <HoloEqualizerPanel
         isOpen={showEqualizer}
         equalizer={equalizer}
@@ -1404,7 +1417,7 @@ export default function App() {
         onUserInteract={player.ensureWebAudioGraph}
       />
 
-      {/* Holo Dialogs */}
+      {/* Dialogs */}
       <HoloSortDialog
         isOpen={showSortDialog}
         currentSort={sortMode}

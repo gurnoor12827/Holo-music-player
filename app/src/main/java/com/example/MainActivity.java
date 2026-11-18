@@ -18,9 +18,9 @@ import android.graphics.Bitmap;
 import android.graphics.Insets;
 import android.graphics.PorterDuff;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.LayerDrawable;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
@@ -33,7 +33,10 @@ import android.os.Looper;
 import android.provider.MediaStore;
 import android.provider.Settings;
 import android.text.Editable;
+import android.text.SpannableString;
+import android.text.Spanned;
 import android.text.TextWatcher;
+import android.text.style.ForegroundColorSpan;
 import android.util.LruCache;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -47,11 +50,16 @@ import android.widget.AdapterView;
 import android.widget.BaseAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.CompoundButton;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.ProgressBar;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.SearchView;
 import android.widget.SeekBar;
@@ -65,6 +73,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -75,12 +84,6 @@ public class MainActivity extends Activity {
     private static final int REQUEST_PERMISSION_AUDIO = 1001;
     private static final int REQUEST_PICK_ALBUM_ART = 1002;
 
-    private static final int HOLO_BLUE_LIGHT = 0xFF33B5E5;
-    private static final int HOLO_BLUE_DARK = 0xFF0099CC;
-    private static final int HOLO_DIVIDER = 0x33FFFFFF;
-    private static final int HOLO_TEXT_PRIMARY = 0xFFFFFFFF;
-    private static final int HOLO_TEXT_DIM = 0x80FFFFFF;
-
     private static final int TAB_ALL_SONGS = 0;
     private static final int TAB_RECENT = 1;
     private static final int TAB_FAVORITES = 2;
@@ -90,12 +93,21 @@ public class MainActivity extends Activity {
     private static final int SORT_DURATION_DESC = 2;
     private static final int SORT_DATE_DESC = 3;
 
+    private static final int REPEAT_OFF = 0;
+    private static final int REPEAT_ALL = 1;
+    private static final int REPEAT_ONE = 2;
+
     private static final int MENU_ID_SEARCH = 1;
     private static final int MENU_ID_SORT = 2;
+    private static final int MENU_ID_SETTINGS = 3;
 
     private static final String PREFS_NAME = "holo_music_prefs";
     private static final String KEY_FAVORITE_IDS = "favorite_song_ids";
     private static final String KEY_SORT_MODE = "sort_mode";
+    private static final String KEY_THEME_ID = "theme_id";
+    private static final String KEY_SHOW_LIST_ART = "show_list_art";
+    private static final String KEY_SHUFFLE = "shuffle_enabled";
+    private static final String KEY_REPEAT_MODE = "repeat_mode";
 
     public static final class Song {
         final long id;
@@ -130,6 +142,16 @@ public class MainActivity extends Activity {
     private final Set<Long> corruptedArtSongIds = new HashSet<>();
     private final Set<Long> customArtSongIds = new HashSet<>();
 
+    private FrameLayout rootLayout;
+    private LinearLayout libraryContainer;
+    private View viewActionBarRule;
+    private LinearLayout subheaderBar;
+    private View dividerSubheader;
+    private View dividerDockTop;
+    private LinearLayout bottomPlaybackBar;
+    private LinearLayout miniPlayerClickable;
+    private ProgressBar miniProgressBar;
+
     private ListView listSongs;
     private View emptyView;
     private TextView tvEmptyTitle;
@@ -139,15 +161,52 @@ public class MainActivity extends Activity {
     private TextView tvTrackCount;
 
     private ImageView ivNowPlayingArt;
-    private ImageButton btnEditAlbumArt;
     private TextView tvNowPlayingTitle;
     private TextView tvNowPlayingArtist;
-    private TextView tvElapsedTime;
-    private TextView tvTotalTime;
-    private SeekBar seekBar;
     private ImageButton btnPrevious;
     private ImageButton btnPlayPause;
     private ImageButton btnNext;
+
+    // Full-screen Now Playing controls
+    private LinearLayout nowPlayingScreen;
+    private LinearLayout npHeaderBar;
+    private View dividerNpTop;
+    private View dividerNpBottom;
+    private FrameLayout npArtFrame;
+    private LinearLayout npTransportBar;
+    private ImageButton btnNpCollapse;
+    private TextView tvNpHeaderTitle;
+    private TextView tvNpQueuePos;
+    private ImageButton btnNpEditArt;
+    private ImageView ivNpArtwork;
+    private TextView tvNpTitle;
+    private TextView tvNpArtist;
+    private TextView tvNpElapsed;
+    private TextView tvNpTotal;
+    private SeekBar seekBarNp;
+    private ImageButton btnNpShuffle;
+    private ImageButton btnNpPrev;
+    private ImageButton btnNpPlayPause;
+    private ImageButton btnNpNext;
+    private ImageButton btnNpRepeat;
+
+    // Settings screen controls
+    private LinearLayout settingsScreen;
+    private LinearLayout settingsHeaderBar;
+    private View dividerSettingsTop;
+    private View dividerSettingsMid;
+    private ImageButton btnSettingsBack;
+    private TextView tvSettingsHeaderTitle;
+    private TextView tvSettingsThemeLabel;
+    private RadioGroup rgThemes;
+    private RadioButton rbThemeHolo;
+    private RadioButton rbThemeAero;
+    private RadioButton rbThemeSkeuo;
+    private TextView tvThemeSummary;
+    private TextView tvSettingsLibraryLabel;
+    private CheckBox cbShowListArt;
+    private Button btnSettingsSort;
+    private Button btnSettingsRescan;
 
     private SongAdapter songAdapter;
     private MediaPlayer mediaPlayer;
@@ -157,6 +216,7 @@ public class MainActivity extends Activity {
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService artExecutor = Executors.newFixedThreadPool(2);
+    private final Random shuffleRng = new Random();
 
     private ImageView activeArtPreviewView;
     private Bitmap activeArtPreviewBitmap;
@@ -170,6 +230,13 @@ public class MainActivity extends Activity {
     private boolean isUserSeeking = false;
     private boolean resumeOnFocusGain = false;
     private boolean hasRequestedPermissionOnce = false;
+    private boolean isNowPlayingOpen = false;
+    private boolean isSettingsOpen = false;
+
+    private ThemeConfig currentTheme = ThemeConfig.HOLO;
+    private boolean showListArtwork = true;
+    private boolean shuffleEnabled = false;
+    private int repeatMode = REPEAT_OFF;
 
     private int activeTab = TAB_ALL_SONGS;
     private int currentSortMode = SORT_TITLE_ASC;
@@ -232,9 +299,9 @@ public class MainActivity extends Activity {
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
 
         bindViews();
-        styleHoloWidgets();
         setupActionBarTabs();
         setupListeners();
+        applyTheme(currentTheme);
 
         checkPermissionAndLoadSongs(true);
     }
@@ -261,6 +328,11 @@ public class MainActivity extends Activity {
     private void loadPreferences() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         currentSortMode = prefs.getInt(KEY_SORT_MODE, SORT_TITLE_ASC);
+        currentTheme = ThemeConfig.fromId(prefs.getInt(KEY_THEME_ID, ThemeConfig.THEME_HOLO));
+        showListArtwork = prefs.getBoolean(KEY_SHOW_LIST_ART, true);
+        shuffleEnabled = prefs.getBoolean(KEY_SHUFFLE, false);
+        repeatMode = prefs.getInt(KEY_REPEAT_MODE, REPEAT_OFF);
+
         Set<String> storedIds = prefs.getStringSet(KEY_FAVORITE_IDS, Collections.<String>emptySet());
         favoriteSongIds.clear();
         if (storedIds != null) {
@@ -285,6 +357,16 @@ public class MainActivity extends Activity {
     }
 
     private void bindViews() {
+        rootLayout = findViewById(R.id.root_layout);
+        libraryContainer = findViewById(R.id.library_container);
+        viewActionBarRule = findViewById(R.id.view_actionbar_rule);
+        subheaderBar = findViewById(R.id.subheader_bar);
+        dividerSubheader = findViewById(R.id.divider_subheader);
+        dividerDockTop = findViewById(R.id.divider_dock_top);
+        bottomPlaybackBar = findViewById(R.id.bottom_playback_bar);
+        miniPlayerClickable = findViewById(R.id.mini_player_clickable);
+        miniProgressBar = findViewById(R.id.mini_progress_bar);
+
         listSongs = findViewById(R.id.list_songs);
         emptyView = findViewById(R.id.empty_view);
         tvEmptyTitle = findViewById(R.id.tv_empty_title);
@@ -294,55 +376,265 @@ public class MainActivity extends Activity {
         tvTrackCount = findViewById(R.id.tv_track_count);
 
         ivNowPlayingArt = findViewById(R.id.iv_now_playing_art);
-        btnEditAlbumArt = findViewById(R.id.btn_edit_album_art);
         tvNowPlayingTitle = findViewById(R.id.tv_now_playing_title);
         tvNowPlayingArtist = findViewById(R.id.tv_now_playing_artist);
-        tvElapsedTime = findViewById(R.id.tv_elapsed_time);
-        tvTotalTime = findViewById(R.id.tv_total_time);
-        seekBar = findViewById(R.id.seek_bar);
         btnPrevious = findViewById(R.id.btn_previous);
         btnPlayPause = findViewById(R.id.btn_play_pause);
         btnNext = findViewById(R.id.btn_next);
 
+        nowPlayingScreen = findViewById(R.id.now_playing_screen);
+        npHeaderBar = findViewById(R.id.np_header_bar);
+        dividerNpTop = findViewById(R.id.divider_np_top);
+        dividerNpBottom = findViewById(R.id.divider_np_bottom);
+        npArtFrame = findViewById(R.id.np_art_frame);
+        npTransportBar = findViewById(R.id.np_transport_bar);
+        btnNpCollapse = findViewById(R.id.btn_np_collapse);
+        tvNpHeaderTitle = findViewById(R.id.tv_np_header_title);
+        tvNpQueuePos = findViewById(R.id.tv_np_queue_pos);
+        btnNpEditArt = findViewById(R.id.btn_np_edit_art);
+        ivNpArtwork = findViewById(R.id.iv_np_artwork);
+        tvNpTitle = findViewById(R.id.tv_np_title);
+        tvNpArtist = findViewById(R.id.tv_np_artist);
+        tvNpElapsed = findViewById(R.id.tv_np_elapsed);
+        tvNpTotal = findViewById(R.id.tv_np_total);
+        seekBarNp = findViewById(R.id.seek_bar_np);
+        btnNpShuffle = findViewById(R.id.btn_np_shuffle);
+        btnNpPrev = findViewById(R.id.btn_np_prev);
+        btnNpPlayPause = findViewById(R.id.btn_np_play_pause);
+        btnNpNext = findViewById(R.id.btn_np_next);
+        btnNpRepeat = findViewById(R.id.btn_np_repeat);
+
+        settingsScreen = findViewById(R.id.settings_screen);
+        settingsHeaderBar = findViewById(R.id.settings_header_bar);
+        dividerSettingsTop = findViewById(R.id.divider_settings_top);
+        dividerSettingsMid = findViewById(R.id.divider_settings_mid);
+        btnSettingsBack = findViewById(R.id.btn_settings_back);
+        tvSettingsHeaderTitle = findViewById(R.id.tv_settings_header_title);
+        tvSettingsThemeLabel = findViewById(R.id.tv_settings_theme_label);
+        rgThemes = findViewById(R.id.rg_themes);
+        rbThemeHolo = findViewById(R.id.rb_theme_holo);
+        rbThemeAero = findViewById(R.id.rb_theme_aero);
+        rbThemeSkeuo = findViewById(R.id.rb_theme_skeuo);
+        tvThemeSummary = findViewById(R.id.tv_theme_summary);
+        tvSettingsLibraryLabel = findViewById(R.id.tv_settings_library_label);
+        cbShowListArt = findViewById(R.id.cb_show_list_art);
+        btnSettingsSort = findViewById(R.id.btn_settings_sort);
+        btnSettingsRescan = findViewById(R.id.btn_settings_rescan);
+
         tvNowPlayingTitle.setSelected(true);
+        tvNpTitle.setSelected(true);
         listSongs.setEmptyView(emptyView);
+
+        cbShowListArt.setChecked(showListArtwork);
+        if (currentTheme.id == ThemeConfig.THEME_AERO) {
+            rbThemeAero.setChecked(true);
+        } else if (currentTheme.id == ThemeConfig.THEME_SKEUOMORPHIC) {
+            rbThemeSkeuo.setChecked(true);
+        } else {
+            rbThemeHolo.setChecked(true);
+        }
 
         songAdapter = new SongAdapter();
         listSongs.setAdapter(songAdapter);
     }
 
-    private void styleHoloWidgets() {
-        Drawable progressDrawable = seekBar.getProgressDrawable();
-        if (progressDrawable instanceof LayerDrawable) {
-            LayerDrawable layers = (LayerDrawable) progressDrawable.mutate();
-            Drawable bg = layers.findDrawableByLayerId(android.R.id.background);
-            if (bg != null) {
-                bg.setColorFilter(HOLO_DIVIDER, PorterDuff.Mode.SRC_IN);
-            }
-            Drawable secondary = layers.findDrawableByLayerId(android.R.id.secondaryProgress);
-            if (secondary != null) {
-                secondary.setColorFilter(HOLO_BLUE_DARK, PorterDuff.Mode.SRC_IN);
-            }
-            Drawable progress = layers.findDrawableByLayerId(android.R.id.progress);
-            if (progress != null) {
-                progress.setColorFilter(HOLO_BLUE_LIGHT, PorterDuff.Mode.SRC_IN);
-            }
+    private void applyTheme(ThemeConfig theme) {
+        currentTheme = theme;
+        int radius = theme.id == ThemeConfig.THEME_HOLO ? 2 : (theme.id == ThemeConfig.THEME_AERO ? 8 : 6);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            getWindow().setStatusBarColor(theme.actionBarTop);
+            getWindow().setNavigationBarColor(theme.dockBottom);
         }
-        Drawable thumb = seekBar.getThumb();
-        if (thumb != null) {
-            thumb.mutate().setColorFilter(HOLO_BLUE_LIGHT, PorterDuff.Mode.SRC_IN);
+
+        Drawable mainBg = ThemeConfig.createVerticalSurface(theme.bgTop, theme.bgBottom, 0, 0, 0);
+        rootLayout.setBackground(mainBg);
+        libraryContainer.setBackground(ThemeConfig.createVerticalSurface(theme.bgTop, theme.bgBottom, 0, 0, 0));
+
+        ActionBar actionBar = getActionBar();
+        if (actionBar != null) {
+            actionBar.setBackgroundDrawable(
+                    ThemeConfig.createVerticalSurface(theme.actionBarTop, theme.actionBarBottom, 0, 0, 0));
+            actionBar.setStackedBackgroundDrawable(new ColorDrawable(theme.subheaderBg));
+            updateActionBarLabels();
         }
-        tintTransportButton(btnPrevious, HOLO_TEXT_PRIMARY);
-        tintTransportButton(btnPlayPause, HOLO_BLUE_LIGHT);
-        tintTransportButton(btnNext, HOLO_TEXT_PRIMARY);
-        tintTransportButton(btnEditAlbumArt, HOLO_BLUE_LIGHT);
+
+        viewActionBarRule.setBackgroundColor(theme.accent);
+        subheaderBar.setBackgroundColor(theme.subheaderBg);
+        dividerSubheader.setBackgroundColor(theme.dividerColor);
+        dividerDockTop.setBackgroundColor(theme.dockHighlight);
+
+        tvSectionHeader.setTextColor(theme.accent);
+        tvTrackCount.setTextColor(theme.textSecondary);
+        listSongs.setDivider(new ColorDrawable(theme.dividerColor));
+        listSongs.setDividerHeight(ThemeConfig.dp(this, 1));
+
+        tvEmptyTitle.setTextColor(theme.textPrimary);
+        tvEmptyMessage.setTextColor(theme.textSecondary);
+        btnEmptyAction.setBackground(ThemeConfig.createControlSurface(this, theme, false, radius));
+        btnEmptyAction.setTextColor(theme.accent);
+
+        // Mini-Player
+        bottomPlaybackBar.setBackground(
+                ThemeConfig.createVerticalSurface(theme.dockTop, theme.dockBottom, 0, 0, 0));
+        ThemeConfig.styleProgressTrack(this, miniProgressBar, theme);
+        tvNowPlayingTitle.setTextColor(theme.textPrimary);
+        tvNowPlayingArtist.setTextColor(theme.accent);
+        btnPrevious.setBackground(ThemeConfig.createControlSurface(this, theme, false, radius));
+        btnPlayPause.setBackground(ThemeConfig.createControlSurface(this, theme, true, radius));
+        btnNext.setBackground(ThemeConfig.createControlSurface(this, theme, false, radius));
+        ThemeConfig.tintButton(btnPrevious, theme.textPrimary);
+        ThemeConfig.tintButton(btnPlayPause, theme.onAccentText);
+        ThemeConfig.tintButton(btnNext, theme.textPrimary);
+
+        // Full-Screen Now Playing
+        nowPlayingScreen.setBackground(ThemeConfig.createVerticalSurface(theme.bgTop, theme.bgBottom, 0, 0, 0));
+        npHeaderBar.setBackground(ThemeConfig.createVerticalSurface(theme.dockTop, theme.dockBottom, 0, 0, 0));
+        dividerNpTop.setBackgroundColor(theme.dividerColor);
+        dividerNpBottom.setBackgroundColor(theme.dividerColor);
+        npTransportBar.setBackground(ThemeConfig.createVerticalSurface(theme.dockTop, theme.dockBottom, 0, 0, 0));
+        npArtFrame.setBackground(ThemeConfig.createVerticalSurface(
+                theme.buttonTop, theme.buttonBottom,
+                theme.id == ThemeConfig.THEME_HOLO ? 0 : ThemeConfig.dp(this, 6),
+                ThemeConfig.dp(this, 1),
+                theme.dividerColor));
+
+        btnNpCollapse.setImageBitmap(ThemeConfig.createCollapseIconBitmap(this, theme.textPrimary));
+        tvNpHeaderTitle.setTextColor(theme.textPrimary);
+        tvNpQueuePos.setTextColor(theme.textSecondary);
+        ThemeConfig.tintButton(btnNpEditArt, theme.accent);
+        tvNpTitle.setTextColor(theme.textPrimary);
+        tvNpArtist.setTextColor(theme.accent);
+        tvNpElapsed.setTextColor(theme.accent);
+        tvNpTotal.setTextColor(theme.textSecondary);
+        ThemeConfig.styleSeekBar(this, seekBarNp, theme);
+
+        btnNpPrev.setBackground(ThemeConfig.createControlSurface(this, theme, false, radius));
+        btnNpPlayPause.setBackground(ThemeConfig.createControlSurface(this, theme, true, radius));
+        btnNpNext.setBackground(ThemeConfig.createControlSurface(this, theme, false, radius));
+        ThemeConfig.tintButton(btnNpPrev, theme.textPrimary);
+        ThemeConfig.tintButton(btnNpPlayPause, theme.onAccentText);
+        ThemeConfig.tintButton(btnNpNext, theme.textPrimary);
+        updateShuffleRepeatButtons();
+
+        // Settings screen
+        settingsScreen.setBackground(ThemeConfig.createVerticalSurface(theme.bgTop, theme.bgBottom, 0, 0, 0));
+        settingsHeaderBar.setBackground(ThemeConfig.createVerticalSurface(theme.dockTop, theme.dockBottom, 0, 0, 0));
+        dividerSettingsTop.setBackgroundColor(theme.dividerColor);
+        dividerSettingsMid.setBackgroundColor(theme.dividerColor);
+        btnSettingsBack.setImageBitmap(ThemeConfig.createBackArrowBitmap(this, theme.textPrimary));
+        tvSettingsHeaderTitle.setTextColor(theme.textPrimary);
+        tvSettingsThemeLabel.setTextColor(theme.accent);
+        rbThemeHolo.setTextColor(theme.textPrimary);
+        rbThemeAero.setTextColor(theme.textPrimary);
+        rbThemeSkeuo.setTextColor(theme.textPrimary);
+        tvThemeSummary.setText(theme.subtitle);
+        tvThemeSummary.setTextColor(theme.textSecondary);
+        tvSettingsLibraryLabel.setTextColor(theme.accent);
+        cbShowListArt.setTextColor(theme.textPrimary);
+        btnSettingsSort.setBackground(ThemeConfig.createControlSurface(this, theme, false, radius));
+        btnSettingsSort.setTextColor(theme.textPrimary);
+        btnSettingsRescan.setBackground(ThemeConfig.createControlSurface(this, theme, true, radius));
+        btnSettingsRescan.setTextColor(theme.onAccentText);
+
+        updateNowPlayingArtworkView(currentSongId);
+        updatePlayPauseIcon(isPlayingSafe());
+        songAdapter.notifyDataSetChanged();
+    }
+
+    private void updateActionBarLabels() {
+        ActionBar actionBar = getActionBar();
+        if (actionBar == null) {
+            return;
+        }
+        SpannableString title = new SpannableString("Tracks");
+        title.setSpan(new ForegroundColorSpan(currentTheme.actionBarText), 0, title.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        actionBar.setTitle(title);
+
+        int count = allSongs.size();
+        String subText = count + (count == 1 ? " local track" : " local tracks");
+        SpannableString sub = new SpannableString(subText);
+        sub.setSpan(new ForegroundColorSpan(currentTheme.actionBarSubText), 0, sub.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        actionBar.setSubtitle(sub);
+    }
+
+    private void updateShuffleRepeatButtons() {
+        btnNpShuffle.setImageBitmap(ThemeConfig.createShuffleIconBitmap(
+                this, shuffleEnabled ? currentTheme.accent : currentTheme.textDim));
+        btnNpRepeat.setImageBitmap(ThemeConfig.createRepeatIconBitmap(
+                this,
+                repeatMode != REPEAT_OFF ? currentTheme.accent : currentTheme.textDim,
+                repeatMode == REPEAT_ONE));
+    }
+
+    private void updateQueueCounterText() {
+        if (tvNpQueuePos == null) {
+            return;
+        }
+        if (playbackQueue.isEmpty() || currentPlaylistIndex < 0) {
+            tvNpQueuePos.setText("-- / --");
+        } else {
+            tvNpQueuePos.setText((currentPlaylistIndex + 1) + " / " + playbackQueue.size());
+        }
+    }
+
+    private void openNowPlaying() {
+        isSettingsOpen = false;
+        isNowPlayingOpen = true;
+        settingsScreen.setVisibility(View.GONE);
+        nowPlayingScreen.setVisibility(View.VISIBLE);
+        ActionBar ab = getActionBar();
+        if (ab != null) {
+            ab.hide();
+        }
+        updateQueueCounterText();
         updateNowPlayingArtworkView(currentSongId);
     }
 
-    private void tintTransportButton(ImageButton button, int argbColor) {
-        if (button != null && button.getDrawable() != null) {
-            button.getDrawable().mutate().setColorFilter(argbColor, PorterDuff.Mode.SRC_IN);
+    private void closeNowPlaying() {
+        isNowPlayingOpen = false;
+        nowPlayingScreen.setVisibility(View.GONE);
+        if (!isSettingsOpen) {
+            ActionBar ab = getActionBar();
+            if (ab != null) {
+                ab.show();
+            }
         }
+    }
+
+    private void openSettings() {
+        isNowPlayingOpen = false;
+        isSettingsOpen = true;
+        nowPlayingScreen.setVisibility(View.GONE);
+        settingsScreen.setVisibility(View.VISIBLE);
+        ActionBar ab = getActionBar();
+        if (ab != null) {
+            ab.hide();
+        }
+    }
+
+    private void closeSettings() {
+        isSettingsOpen = false;
+        settingsScreen.setVisibility(View.GONE);
+        ActionBar ab = getActionBar();
+        if (ab != null) {
+            ab.show();
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (isSettingsOpen) {
+            closeSettings();
+            return;
+        }
+        if (isNowPlayingOpen) {
+            closeNowPlaying();
+            return;
+        }
+        super.onBackPressed();
     }
 
     private void setupActionBarTabs() {
@@ -350,8 +642,7 @@ public class MainActivity extends Activity {
         if (actionBar == null) {
             return;
         }
-        actionBar.setTitle("Holo Music");
-        actionBar.setSubtitle("Local Audio Library");
+        updateActionBarLabels();
         actionBar.setIcon(android.R.drawable.ic_media_play);
         actionBar.setNavigationMode(ActionBar.NAVIGATION_MODE_TABS);
 
@@ -415,6 +706,20 @@ public class MainActivity extends Activity {
             }
         });
 
+        miniPlayerClickable.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                openNowPlaying();
+            }
+        });
+
+        btnNpCollapse.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                closeNowPlaying();
+            }
+        });
+
         View.OnClickListener editCurrentArtClick = new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -430,35 +735,65 @@ public class MainActivity extends Activity {
                 }
             }
         };
-        ivNowPlayingArt.setOnClickListener(editCurrentArtClick);
-        btnEditAlbumArt.setOnClickListener(editCurrentArtClick);
+        ivNpArtwork.setOnClickListener(editCurrentArtClick);
+        btnNpEditArt.setOnClickListener(editCurrentArtClick);
 
-        btnPlayPause.setOnClickListener(new View.OnClickListener() {
+        View.OnClickListener playPauseClick = new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 togglePlayPause();
             }
-        });
-
-        btnPrevious.setOnClickListener(new View.OnClickListener() {
+        };
+        View.OnClickListener prevClick = new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 playPrevious();
             }
-        });
-
-        btnNext.setOnClickListener(new View.OnClickListener() {
+        };
+        View.OnClickListener nextClick = new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 playNext();
             }
+        };
+
+        btnPlayPause.setOnClickListener(playPauseClick);
+        btnNpPlayPause.setOnClickListener(playPauseClick);
+        btnPrevious.setOnClickListener(prevClick);
+        btnNpPrev.setOnClickListener(prevClick);
+        btnNext.setOnClickListener(nextClick);
+        btnNpNext.setOnClickListener(nextClick);
+
+        btnNpShuffle.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                shuffleEnabled = !shuffleEnabled;
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                        .edit()
+                        .putBoolean(KEY_SHUFFLE, shuffleEnabled)
+                        .apply();
+                updateShuffleRepeatButtons();
+            }
         });
 
-        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+        btnNpRepeat.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                repeatMode = (repeatMode + 1) % 3;
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                        .edit()
+                        .putInt(KEY_REPEAT_MODE, repeatMode)
+                        .apply();
+                updateShuffleRepeatButtons();
+            }
+        });
+
+        seekBarNp.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
                 if (fromUser && isMediaPrepared) {
-                    tvElapsedTime.setText(formatDuration(progress));
+                    tvNpElapsed.setText(formatDuration(progress));
+                    miniProgressBar.setProgress(progress);
                 }
             }
 
@@ -472,7 +807,65 @@ public class MainActivity extends Activity {
                 isUserSeeking = false;
                 if (mediaPlayer != null && isMediaPrepared) {
                     mediaPlayer.seekTo(bar.getProgress());
-                    tvElapsedTime.setText(formatDuration(bar.getProgress()));
+                    tvNpElapsed.setText(formatDuration(bar.getProgress()));
+                    miniProgressBar.setProgress(bar.getProgress());
+                }
+            }
+        });
+
+        btnSettingsBack.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                closeSettings();
+            }
+        });
+
+        rgThemes.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(RadioGroup group, int checkedId) {
+                int selectedId = ThemeConfig.THEME_HOLO;
+                if (checkedId == R.id.rb_theme_aero) {
+                    selectedId = ThemeConfig.THEME_AERO;
+                } else if (checkedId == R.id.rb_theme_skeuo) {
+                    selectedId = ThemeConfig.THEME_SKEUOMORPHIC;
+                }
+                if (selectedId != currentTheme.id) {
+                    getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                            .edit()
+                            .putInt(KEY_THEME_ID, selectedId)
+                            .apply();
+                    applyTheme(ThemeConfig.fromId(selectedId));
+                }
+            }
+        });
+
+        cbShowListArt.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                showListArtwork = isChecked;
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                        .edit()
+                        .putBoolean(KEY_SHOW_LIST_ART, showListArtwork)
+                        .apply();
+                songAdapter.notifyDataSetChanged();
+            }
+        });
+
+        btnSettingsSort.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showHoloSortDialog();
+            }
+        });
+
+        btnSettingsRescan.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (hasAudioPermission()) {
+                    scanLocalAudioFiles();
+                    closeSettings();
+                } else {
+                    requestAudioPermission();
                 }
             }
         });
@@ -501,7 +894,7 @@ public class MainActivity extends Activity {
                 MenuItem.SHOW_AS_ACTION_IF_ROOM | MenuItem.SHOW_AS_ACTION_COLLAPSE_ACTION_VIEW);
 
         final SearchView searchView = new SearchView(this);
-        searchView.setQueryHint("Search songs or artists...");
+        searchView.setQueryHint("Search tracks or artists");
         searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
             @Override
             public boolean onQueryTextSubmit(String query) {
@@ -524,6 +917,10 @@ public class MainActivity extends Activity {
         sortItem.setIcon(android.R.drawable.ic_menu_sort_by_size);
         sortItem.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
 
+        MenuItem settingsItem = menu.add(Menu.NONE, MENU_ID_SETTINGS, 3, "Settings");
+        settingsItem.setIcon(android.R.drawable.ic_menu_preferences);
+        settingsItem.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+
         return true;
     }
 
@@ -531,6 +928,10 @@ public class MainActivity extends Activity {
     public boolean onOptionsItemSelected(MenuItem item) {
         if (item.getItemId() == MENU_ID_SORT) {
             showHoloSortDialog();
+            return true;
+        }
+        if (item.getItemId() == MENU_ID_SETTINGS) {
+            openSettings();
             return true;
         }
         return super.onOptionsItemSelected(item);
@@ -544,7 +945,10 @@ public class MainActivity extends Activity {
                 "Recently Added"
         };
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(this, AlertDialog.THEME_HOLO_DARK);
+        int dialogTheme = currentTheme.isLightSurface
+                ? AlertDialog.THEME_HOLO_LIGHT
+                : AlertDialog.THEME_HOLO_DARK;
+        AlertDialog.Builder builder = new AlertDialog.Builder(this, dialogTheme);
         builder.setTitle("Sort Tracks By");
         builder.setSingleChoiceItems(sortLabels, currentSortMode, new DialogInterface.OnClickListener() {
             @Override
@@ -653,12 +1057,7 @@ public class MainActivity extends Activity {
                         allSongs.clear();
                         allSongs.addAll(loaded);
                         applyFiltersAndSort();
-
-                        ActionBar actionBar = getActionBar();
-                        if (actionBar != null) {
-                            int count = allSongs.size();
-                            actionBar.setSubtitle(count + (count == 1 ? " local track" : " local tracks"));
-                        }
+                        updateActionBarLabels();
                     }
                 });
             }
@@ -848,11 +1247,11 @@ public class MainActivity extends Activity {
         if (activeTab == TAB_RECENT) {
             tvSectionHeader.setText("RECENTLY ADDED TRACKS");
         } else if (activeTab == TAB_FAVORITES) {
-            tvSectionHeader.setText("FAVORITES (LONG-PRESS SONG TO TOGGLE)");
+            tvSectionHeader.setText("FAVORITES (LONG-PRESS TRACK TO TOGGLE)");
         } else if (!searchQuery.isEmpty()) {
             tvSectionHeader.setText("SEARCH RESULTS: \"" + searchQuery.toUpperCase(Locale.US) + "\"");
         } else {
-            tvSectionHeader.setText("ALL LOCAL TRACKS  •  " + sortSuffix);
+            tvSectionHeader.setText("TRACKS - " + sortSuffix);
         }
 
         int shown = displayedSongs.size();
@@ -867,7 +1266,7 @@ public class MainActivity extends Activity {
         } else if (displayedSongs.isEmpty() && activeTab == TAB_FAVORITES) {
             tvEmptyTitle.setText("No Favorite Tracks Yet");
             tvEmptyMessage.setText(
-                    "Long-press any song in the SONGS or RECENT tab to star it into your Favorites list.");
+                    "Long-press any song in the SONGS or RECENT tab to add it to your Favorites list.");
             btnEmptyAction.setVisibility(View.GONE);
         } else if (displayedSongs.isEmpty()) {
             tvEmptyTitle.setText("No Matching Tracks");
@@ -907,11 +1306,17 @@ public class MainActivity extends Activity {
         currentSongId = song.id;
 
         tvNowPlayingTitle.setText(song.title);
-        tvNowPlayingArtist.setText(song.artist + " · " + song.album);
-        tvElapsedTime.setText("0:00");
-        tvTotalTime.setText(formatDuration(song.durationMs));
-        seekBar.setMax((int) Math.max(song.durationMs, 1000L));
-        seekBar.setProgress(0);
+        tvNowPlayingArtist.setText(song.artist + " - " + song.album);
+        tvNpTitle.setText(song.title);
+        tvNpArtist.setText(song.artist + " - " + song.album);
+        tvNpElapsed.setText("0:00");
+        tvNpTotal.setText(formatDuration(song.durationMs));
+        int maxMs = (int) Math.max(song.durationMs, 1000L);
+        miniProgressBar.setMax(maxMs);
+        miniProgressBar.setProgress(0);
+        seekBarNp.setMax(maxMs);
+        seekBarNp.setProgress(0);
+        updateQueueCounterText();
         updateNowPlayingArtworkView(song.id);
 
         Uri trackUri = ContentUris.withAppendedId(
@@ -925,8 +1330,9 @@ public class MainActivity extends Activity {
                     isMediaPrepared = true;
                     int duration = mp.getDuration();
                     if (duration > 0) {
-                        seekBar.setMax(duration);
-                        tvTotalTime.setText(formatDuration(duration));
+                        miniProgressBar.setMax(duration);
+                        seekBarNp.setMax(duration);
+                        tvNpTotal.setText(formatDuration(duration));
                     }
                     mp.start();
                     updatePlayPauseIcon(true);
@@ -937,14 +1343,7 @@ public class MainActivity extends Activity {
             mediaPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
                 @Override
                 public void onCompletion(MediaPlayer mp) {
-                    if (!playbackQueue.isEmpty()) {
-                        playNext();
-                    } else {
-                        updatePlayPauseIcon(false);
-                        seekBar.setProgress(0);
-                        tvElapsedTime.setText("0:00");
-                        songAdapter.notifyDataSetChanged();
-                    }
+                    handleTrackCompletion();
                 }
             });
             mediaPlayer.setOnErrorListener(new MediaPlayer.OnErrorListener() {
@@ -965,6 +1364,36 @@ public class MainActivity extends Activity {
             updatePlayPauseIcon(false);
             Toast.makeText(this, "Error opening audio file: " + song.title, Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void handleTrackCompletion() {
+        if (repeatMode == REPEAT_ONE && mediaPlayer != null && isMediaPrepared) {
+            mediaPlayer.seekTo(0);
+            mediaPlayer.start();
+            updatePlayPauseIcon(true);
+            return;
+        }
+        if (playbackQueue.isEmpty()) {
+            resetTransportToIdle();
+            return;
+        }
+        if (shuffleEnabled && playbackQueue.size() > 1) {
+            playNext();
+            return;
+        }
+        if (currentPlaylistIndex < playbackQueue.size() - 1 || repeatMode == REPEAT_ALL) {
+            playNext();
+        } else {
+            resetTransportToIdle();
+        }
+    }
+
+    private void resetTransportToIdle() {
+        updatePlayPauseIcon(false);
+        miniProgressBar.setProgress(0);
+        seekBarNp.setProgress(0);
+        tvNpElapsed.setText("0:00");
+        songAdapter.notifyDataSetChanged();
     }
 
     private void togglePlayPause() {
@@ -1015,8 +1444,9 @@ public class MainActivity extends Activity {
     private void playPrevious() {
         if (mediaPlayer != null && isMediaPrepared && mediaPlayer.getCurrentPosition() > 3000) {
             mediaPlayer.seekTo(0);
-            seekBar.setProgress(0);
-            tvElapsedTime.setText("0:00");
+            miniProgressBar.setProgress(0);
+            seekBarNp.setProgress(0);
+            tvNpElapsed.setText("0:00");
             return;
         }
 
@@ -1038,7 +1468,15 @@ public class MainActivity extends Activity {
             return;
         }
 
-        currentPlaylistIndex = (currentPlaylistIndex + 1) % playbackQueue.size();
+        if (shuffleEnabled && playbackQueue.size() > 1) {
+            int nextIndex = currentPlaylistIndex;
+            while (nextIndex == currentPlaylistIndex) {
+                nextIndex = shuffleRng.nextInt(playbackQueue.size());
+            }
+            currentPlaylistIndex = nextIndex;
+        } else {
+            currentPlaylistIndex = (currentPlaylistIndex + 1) % playbackQueue.size();
+        }
         playSong(playbackQueue.get(currentPlaylistIndex));
     }
 
@@ -1055,9 +1493,11 @@ public class MainActivity extends Activity {
     }
 
     private void updatePlayPauseIcon(boolean playing) {
-        btnPlayPause.setImageResource(
-                playing ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play);
-        tintTransportButton(btnPlayPause, HOLO_BLUE_LIGHT);
+        int resId = playing ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play;
+        btnPlayPause.setImageResource(resId);
+        btnNpPlayPause.setImageResource(resId);
+        ThemeConfig.tintButton(btnPlayPause, currentTheme.onAccentText);
+        ThemeConfig.tintButton(btnNpPlayPause, currentTheme.onAccentText);
     }
 
     private void updateSeekProgress() {
@@ -1066,8 +1506,9 @@ public class MainActivity extends Activity {
         }
         try {
             int pos = mediaPlayer.getCurrentPosition();
-            seekBar.setProgress(pos);
-            tvElapsedTime.setText(formatDuration(pos));
+            miniProgressBar.setProgress(pos);
+            seekBarNp.setProgress(pos);
+            tvNpElapsed.setText(formatDuration(pos));
         } catch (IllegalStateException ignored) {
         }
     }
@@ -1184,7 +1625,10 @@ public class MainActivity extends Activity {
                 "Edit / Generate Album Art"
         };
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(this, AlertDialog.THEME_HOLO_DARK);
+        int dialogTheme = currentTheme.isLightSurface
+                ? AlertDialog.THEME_HOLO_LIGHT
+                : AlertDialog.THEME_HOLO_DARK;
+        AlertDialog.Builder builder = new AlertDialog.Builder(this, dialogTheme);
         builder.setTitle(target.title);
         builder.setItems(options, new DialogInterface.OnClickListener() {
             @Override
@@ -1260,19 +1704,54 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void updateNowPlayingArtworkView(long songId) {
-        if (ivNowPlayingArt == null) {
-            return;
-        }
+    private void updateNowPlayingArtworkView(final long songId) {
         Bitmap bmp = songId > 0L ? artThumbCache.get(songId) : null;
         if (bmp != null) {
-            ivNowPlayingArt.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            ivNowPlayingArt.setColorFilter(null);
-            ivNowPlayingArt.setImageBitmap(bmp);
+            if (ivNowPlayingArt != null) {
+                ivNowPlayingArt.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                ivNowPlayingArt.setColorFilter(null);
+                ivNowPlayingArt.setImageBitmap(bmp);
+            }
+            if (ivNpArtwork != null) {
+                ivNpArtwork.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                ivNpArtwork.setColorFilter(null);
+                ivNpArtwork.setImageBitmap(bmp);
+                if (isNowPlayingOpen) {
+                    artExecutor.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            final HoloAlbumArtHelper.ArtworkLoadResult full =
+                                    HoloAlbumArtHelper.loadTrackArtwork(MainActivity.this, songId, 512);
+                            if (full.bitmap != null) {
+                                uiHandler.post(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        if (!isFinishing() && !isDestroyed()
+                                                && songId == currentSongId && ivNpArtwork != null) {
+                                            ivNpArtwork.setImageBitmap(full.bitmap);
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    });
+                }
+            }
         } else {
-            ivNowPlayingArt.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-            ivNowPlayingArt.setImageResource(android.R.drawable.ic_media_play);
-            ivNowPlayingArt.setColorFilter(HOLO_BLUE_LIGHT, PorterDuff.Mode.SRC_IN);
+            Bitmap miniVinyl = ThemeConfig.createVinylPlaceholderBitmap(
+                    currentTheme, ThemeConfig.dp(this, 42));
+            if (ivNowPlayingArt != null) {
+                ivNowPlayingArt.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                ivNowPlayingArt.setColorFilter(null);
+                ivNowPlayingArt.setImageBitmap(miniVinyl);
+            }
+            if (ivNpArtwork != null) {
+                Bitmap largeVinyl = ThemeConfig.createVinylPlaceholderBitmap(
+                        currentTheme, ThemeConfig.dp(this, 244));
+                ivNpArtwork.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                ivNpArtwork.setColorFilter(null);
+                ivNpArtwork.setImageBitmap(largeVinyl);
+            }
             if (songId > 0L) {
                 loadSongThumbnailAsync(songId);
             }
@@ -1346,8 +1825,8 @@ public class MainActivity extends Activity {
         int previewPx = dpToPx(116);
         LinearLayout.LayoutParams imgLp = new LinearLayout.LayoutParams(previewPx, previewPx);
         GradientDrawable frameBg = new GradientDrawable();
-        frameBg.setColor(0xFF0D1218);
-        frameBg.setStroke(dpToPx(2), HOLO_BLUE_LIGHT);
+        frameBg.setColor(currentTheme.dockBottom);
+        frameBg.setStroke(dpToPx(2), currentTheme.accent);
         ivPreview.setBackground(frameBg);
         ivPreview.setPadding(dpToPx(2), dpToPx(2), dpToPx(2), dpToPx(2));
         ivPreview.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -1364,21 +1843,21 @@ public class MainActivity extends Activity {
 
         TextView tvTrackName = new TextView(this);
         tvTrackName.setText(song.title);
-        tvTrackName.setTextColor(HOLO_TEXT_PRIMARY);
+        tvTrackName.setTextColor(currentTheme.textPrimary);
         tvTrackName.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         tvTrackName.setTypeface(Typeface.DEFAULT_BOLD);
         metaCol.addView(tvTrackName);
 
         TextView tvArtistAlbum = new TextView(this);
-        tvArtistAlbum.setText(song.artist + " · " + song.album);
-        tvArtistAlbum.setTextColor(HOLO_BLUE_LIGHT);
+        tvArtistAlbum.setText(song.artist + " - " + song.album);
+        tvArtistAlbum.setTextColor(currentTheme.accent);
         tvArtistAlbum.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         tvArtistAlbum.setPadding(0, dpToPx(4), 0, dpToPx(8));
         metaCol.addView(tvArtistAlbum);
 
         Button btnPickDevice = new Button(this);
         btnPickDevice.setText("Pick From Device...");
-        btnPickDevice.setTextColor(HOLO_BLUE_LIGHT);
+        btnPickDevice.setTextColor(currentTheme.accent);
         btnPickDevice.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         btnPickDevice.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -1391,7 +1870,7 @@ public class MainActivity extends Activity {
         // Cover Label / Visual Seed input + Shuffle
         TextView tvSeedLabel = new TextView(this);
         tvSeedLabel.setText("GENERATE HOLO COVER (LABEL & STYLE)");
-        tvSeedLabel.setTextColor(HOLO_BLUE_LIGHT);
+        tvSeedLabel.setTextColor(currentTheme.accent);
         tvSeedLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         tvSeedLabel.setTypeface(Typeface.DEFAULT_BOLD);
         tvSeedLabel.setPadding(0, dpToPx(14), 0, dpToPx(4));
@@ -1404,16 +1883,16 @@ public class MainActivity extends Activity {
 
         final EditText etSeed = new EditText(this);
         etSeed.setText(defaultSeed);
-        etSeed.setHint("Album or cover title...");
-        etSeed.setTextColor(HOLO_TEXT_PRIMARY);
-        etSeed.setHintTextColor(HOLO_TEXT_DIM);
+        etSeed.setHint("Album or cover title");
+        etSeed.setTextColor(currentTheme.textPrimary);
+        etSeed.setHintTextColor(currentTheme.textDim);
         etSeed.setSingleLine(true);
         seedRow.addView(etSeed, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         Button btnShuffle = new Button(this);
         btnShuffle.setText("Shuffle");
-        btnShuffle.setTextColor(HOLO_BLUE_LIGHT);
+        btnShuffle.setTextColor(currentTheme.accent);
         btnShuffle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         seedRow.addView(btnShuffle);
 
@@ -1461,7 +1940,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        // Style selector row (wrapping across 2 clean Holo rows)
+        // Style selector row (wrapping across 2 clean rows)
         LinearLayout styleRow1 = new LinearLayout(this);
         styleRow1.setOrientation(LinearLayout.HORIZONTAL);
         root.addView(styleRow1);
@@ -1476,14 +1955,14 @@ public class MainActivity extends Activity {
             Button btnStyle = new Button(this);
             btnStyle.setText(HoloAlbumArtHelper.STYLE_LABELS[i]);
             btnStyle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-            btnStyle.setTextColor(i == selectedStyle[0] ? HOLO_BLUE_LIGHT : HOLO_TEXT_PRIMARY);
+            btnStyle.setTextColor(i == selectedStyle[0] ? currentTheme.accent : currentTheme.textPrimary);
             btnStyle.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
                     selectedStyle[0] = styleIdx;
                     for (int j = 0; j < styleButtons.size(); j++) {
                         styleButtons.get(j).setTextColor(
-                                j == styleIdx ? HOLO_BLUE_LIGHT : HOLO_TEXT_PRIMARY);
+                                j == styleIdx ? currentTheme.accent : currentTheme.textPrimary);
                     }
                     regenerateAction.run();
                 }
@@ -1501,16 +1980,16 @@ public class MainActivity extends Activity {
         // Library Artwork Search section
         TextView tvSearchLabel = new TextView(this);
         tvSearchLabel.setText("SEARCH EXISTING LIBRARY ARTWORK");
-        tvSearchLabel.setTextColor(HOLO_BLUE_LIGHT);
+        tvSearchLabel.setTextColor(currentTheme.accent);
         tvSearchLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         tvSearchLabel.setTypeface(Typeface.DEFAULT_BOLD);
         tvSearchLabel.setPadding(0, dpToPx(12), 0, dpToPx(4));
         root.addView(tvSearchLabel);
 
         EditText etSearchArt = new EditText(this);
-        etSearchArt.setHint("Search tracks or albums with cover art...");
-        etSearchArt.setTextColor(HOLO_TEXT_PRIMARY);
-        etSearchArt.setHintTextColor(HOLO_TEXT_DIM);
+        etSearchArt.setHint("Search tracks or albums with cover art");
+        etSearchArt.setTextColor(currentTheme.textPrimary);
+        etSearchArt.setHintTextColor(currentTheme.textDim);
         etSearchArt.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         etSearchArt.setSingleLine(true);
         root.addView(etSearchArt);
@@ -1547,7 +2026,7 @@ public class MainActivity extends Activity {
         final CheckBox cbApplyAlbum = new CheckBox(this);
         if (sameAlbumSongs.size() > 1) {
             cbApplyAlbum.setText("Apply to all " + sameAlbumSongs.size() + " tracks in \"" + song.album + "\"");
-            cbApplyAlbum.setTextColor(HOLO_TEXT_PRIMARY);
+            cbApplyAlbum.setTextColor(currentTheme.textPrimary);
             cbApplyAlbum.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
             cbApplyAlbum.setChecked(true);
             LinearLayout.LayoutParams cbLp = new LinearLayout.LayoutParams(
@@ -1556,7 +2035,10 @@ public class MainActivity extends Activity {
             root.addView(cbApplyAlbum, cbLp);
         }
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(this, AlertDialog.THEME_HOLO_DARK);
+        int dialogTheme = currentTheme.isLightSurface
+                ? AlertDialog.THEME_HOLO_LIGHT
+                : AlertDialog.THEME_HOLO_DARK;
+        AlertDialog.Builder builder = new AlertDialog.Builder(this, dialogTheme);
         builder.setTitle(R.string.holo_art_dialog_title);
         builder.setView(scroll);
         builder.setPositiveButton("Save Cover", new DialogInterface.OnClickListener() {
@@ -1621,7 +2103,7 @@ public class MainActivity extends Activity {
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dpToPx(6), dpToPx(6), dpToPx(6), dpToPx(6));
-            row.setBackgroundColor(0x14FFFFFF);
+            row.setBackgroundColor(currentTheme.rowActiveBg);
 
             ImageView iv = new ImageView(this);
             int thumbSize = dpToPx(34);
@@ -1630,8 +2112,8 @@ public class MainActivity extends Activity {
             row.addView(iv, new LinearLayout.LayoutParams(thumbSize, thumbSize));
 
             TextView tv = new TextView(this);
-            tv.setText(candidate.album + " — " + candidate.artist);
-            tv.setTextColor(HOLO_TEXT_PRIMARY);
+            tv.setText(candidate.album + " - " + candidate.artist);
+            tv.setTextColor(currentTheme.textPrimary);
             tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
             tv.setSingleLine(true);
             LinearLayout.LayoutParams tvLp = new LinearLayout.LayoutParams(
@@ -1668,7 +2150,7 @@ public class MainActivity extends Activity {
         if (added == 0) {
             TextView empty = new TextView(this);
             empty.setText("No cached library covers matched yet. Generate or pick from device above.");
-            empty.setTextColor(HOLO_TEXT_DIM);
+            empty.setTextColor(currentTheme.textDim);
             empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
             empty.setPadding(0, dpToPx(4), 0, dpToPx(4));
             container.addView(empty);
@@ -1833,22 +2315,30 @@ public class MainActivity extends Activity {
             boolean isCurrent = (song.id == currentSongId);
             boolean isFav = favoriteSongIds.contains(song.id);
 
-            holder.tvTitle.setText(isFav ? "★ " + song.title : song.title);
-            holder.tvArtist.setText(song.artist + " · " + song.album);
+            holder.tvTitle.setText(isFav ? "FAV - " + song.title : song.title);
+            holder.tvArtist.setText(song.artist + " - " + song.album);
+            holder.tvArtist.setTextColor(currentTheme.textSecondary);
             holder.tvDuration.setText(formatDuration(song.durationMs));
+            holder.viewIndicator.setBackgroundColor(currentTheme.accent);
 
-            Bitmap thumb = artThumbCache.get(song.id);
-            if (thumb != null) {
-                holder.ivArt.setScaleType(ImageView.ScaleType.CENTER_CROP);
-                holder.ivArt.setColorFilter(null);
-                holder.ivArt.setImageBitmap(thumb);
+            if (showListArtwork) {
+                holder.ivArt.setVisibility(View.VISIBLE);
+                holder.ivArt.setBackgroundColor(currentTheme.isLightSurface ? 0xFFD9EEF9 : 0xFF12171D);
+                Bitmap thumb = artThumbCache.get(song.id);
+                if (thumb != null) {
+                    holder.ivArt.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                    holder.ivArt.setColorFilter(null);
+                    holder.ivArt.setImageBitmap(thumb);
+                } else {
+                    holder.ivArt.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+                    holder.ivArt.setImageResource(android.R.drawable.ic_media_play);
+                    holder.ivArt.setColorFilter(
+                            corruptedArtSongIds.contains(song.id) ? 0x99FFB300 : currentTheme.accent,
+                            PorterDuff.Mode.SRC_IN);
+                    loadSongThumbnailAsync(song.id);
+                }
             } else {
-                holder.ivArt.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-                holder.ivArt.setImageResource(android.R.drawable.ic_media_play);
-                holder.ivArt.setColorFilter(
-                        corruptedArtSongIds.contains(song.id) ? 0x99FFB300 : 0x6633B5E5,
-                        PorterDuff.Mode.SRC_IN);
-                loadSongThumbnailAsync(song.id);
+                holder.ivArt.setVisibility(View.GONE);
             }
 
             holder.btnEditArt.setOnClickListener(new View.OnClickListener() {
@@ -1859,7 +2349,7 @@ public class MainActivity extends Activity {
             });
             if (holder.btnEditArt.getDrawable() != null) {
                 holder.btnEditArt.getDrawable().mutate().setColorFilter(
-                        thumb == null ? HOLO_BLUE_LIGHT : HOLO_TEXT_DIM,
+                        artThumbCache.get(song.id) == null ? currentTheme.accent : currentTheme.textDim,
                         PorterDuff.Mode.SRC_IN);
             }
 
@@ -1873,19 +2363,19 @@ public class MainActivity extends Activity {
                                 : android.R.drawable.ic_media_pause);
                 if (holder.ivStatus.getDrawable() != null) {
                     holder.ivStatus.getDrawable().mutate().setColorFilter(
-                            activelyPlaying ? HOLO_BLUE_LIGHT : HOLO_BLUE_DARK,
+                            activelyPlaying ? currentTheme.accent : currentTheme.accentDark,
                             PorterDuff.Mode.SRC_IN);
                 }
-                holder.tvTitle.setTextColor(HOLO_BLUE_LIGHT);
+                holder.tvTitle.setTextColor(currentTheme.accent);
                 holder.tvTitle.setTypeface(Typeface.DEFAULT_BOLD);
-                holder.tvDuration.setTextColor(HOLO_BLUE_LIGHT);
-                convertView.setBackgroundColor(0x1F33B5E5);
+                holder.tvDuration.setTextColor(currentTheme.accent);
+                convertView.setBackgroundColor(currentTheme.rowActiveBg);
             } else {
                 holder.viewIndicator.setVisibility(View.INVISIBLE);
                 holder.ivStatus.setVisibility(View.GONE);
-                holder.tvTitle.setTextColor(HOLO_TEXT_PRIMARY);
+                holder.tvTitle.setTextColor(currentTheme.textPrimary);
                 holder.tvTitle.setTypeface(Typeface.DEFAULT);
-                holder.tvDuration.setTextColor(HOLO_TEXT_DIM);
+                holder.tvDuration.setTextColor(currentTheme.textDim);
                 convertView.setBackgroundColor(0x00000000);
             }
 

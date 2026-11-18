@@ -1,293 +1,598 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root_layout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/holo_bg_black"
-    android:orientation="vertical">
+    android:background="@color/holo_bg_black">
 
-    <!-- Classic Holo Blue Dark (#0099CC) 2dp Action Bar bottom accent rule -->
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="2dp"
-        android:background="@color/holo_blue_dark" />
-
-    <!-- Holo Section Summary Strip -->
+    <!-- Main Library + Mini-Player Container -->
     <LinearLayout
+        android:id="@+id/library_container"
         android:layout_width="match_parent"
-        android:layout_height="30dp"
-        android:background="@color/holo_subheader_bg"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="14dp"
-        android:paddingEnd="14dp">
-
-        <TextView
-            android:id="@+id/tv_section_header"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:singleLine="true"
-            android:text="@string/holo_header_all_songs"
-            android:textColor="@color/holo_blue_light"
-            android:textSize="11sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tv_track_count"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/holo_zero_tracks"
-            android:textColor="@color/holo_text_secondary"
-            android:textSize="11sp" />
-    </LinearLayout>
-
-    <!-- Thin 1dp #33FFFFFF Holo divider -->
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="@color/holo_divider" />
-
-    <!-- Main Track List Container -->
-    <FrameLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
-
-        <ListView
-            android:id="@+id/list_songs"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:cacheColorHint="#00000000"
-            android:divider="@color/holo_divider"
-            android:dividerHeight="1dp"
-            android:fastScrollEnabled="true"
-            android:scrollbarStyle="outsideOverlay" />
-
-        <!-- Empty / Permission State View -->
-        <LinearLayout
-            android:id="@+id/empty_view"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:gravity="center"
-            android:orientation="vertical"
-            android:padding="28dp"
-            android:visibility="gone">
-
-            <TextView
-                android:id="@+id/tv_empty_title"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:gravity="center"
-                android:text="@string/holo_empty_title"
-                android:textColor="@color/holo_text_primary"
-                android:textSize="17sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/tv_empty_message"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:gravity="center"
-                android:lineSpacingExtra="2dp"
-                android:text="@string/holo_empty_message"
-                android:textColor="@color/holo_text_secondary"
-                android:textSize="13sp" />
-
-            <Button
-                android:id="@+id/btn_empty_action"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
-                android:paddingStart="20dp"
-                android:paddingEnd="20dp"
-                android:text="@string/holo_btn_scan"
-                android:textColor="@color/holo_blue_light"
-                android:textSize="13sp"
-                android:textStyle="bold" />
-        </LinearLayout>
-    </FrameLayout>
-
-    <!-- Docked Holo Bottom Playback Bar -->
-    <LinearLayout
-        android:id="@+id/bottom_playback_bar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@color/holo_surface_dark"
+        android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <!-- Signature 2dp Holo Blue Light (#33B5E5) top accent border -->
         <View
+            android:id="@+id/view_actionbar_rule"
             android:layout_width="match_parent"
             android:layout_height="2dp"
-            android:background="@color/holo_blue_light" />
+            android:background="@color/holo_blue_dark" />
 
-        <!-- Now Playing Metadata with Album Art & Edit Trigger -->
         <LinearLayout
+            android:id="@+id/subheader_bar"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="30dp"
+            android:background="@color/holo_subheader_bg"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:paddingStart="14dp"
-            android:paddingTop="10dp"
-            android:paddingEnd="10dp"
-            android:paddingBottom="4dp">
+            android:paddingEnd="14dp">
 
-            <ImageView
-                android:id="@+id/iv_now_playing_art"
-                android:layout_width="46dp"
-                android:layout_height="46dp"
-                android:background="#12171D"
-                android:clickable="true"
-                android:contentDescription="@string/holo_cd_album_art"
-                android:focusable="true"
-                android:padding="1dp"
-                android:scaleType="centerInside"
-                android:src="@android:drawable/ic_media_play" />
+            <TextView
+                android:id="@+id/tv_section_header"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:text="@string/holo_header_all_songs"
+                android:textColor="@color/holo_blue_light"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_track_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/holo_zero_tracks"
+                android:textColor="@color/holo_text_secondary"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <View
+            android:id="@+id/divider_subheader"
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/holo_divider" />
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <ListView
+                android:id="@+id/list_songs"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:cacheColorHint="#00000000"
+                android:divider="@color/holo_divider"
+                android:dividerHeight="1dp"
+                android:fastScrollEnabled="true"
+                android:scrollbarStyle="outsideOverlay" />
+
+            <LinearLayout
+                android:id="@+id/empty_view"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:padding="28dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tv_empty_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="@string/holo_empty_title"
+                    android:textColor="@color/holo_text_primary"
+                    android:textSize="17sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tv_empty_message"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center"
+                    android:lineSpacingExtra="2dp"
+                    android:text="@string/holo_empty_message"
+                    android:textColor="@color/holo_text_secondary"
+                    android:textSize="13sp" />
+
+                <Button
+                    android:id="@+id/btn_empty_action"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp"
+                    android:paddingStart="20dp"
+                    android:paddingEnd="20dp"
+                    android:text="@string/holo_btn_scan"
+                    android:textColor="@color/holo_blue_light"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </FrameLayout>
+
+        <!-- Compact Docked Mini-Player (tap metadata to expand Now Playing) -->
+        <LinearLayout
+            android:id="@+id/bottom_playback_bar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/holo_surface_dark"
+            android:orientation="vertical">
+
+            <View
+                android:id="@+id/divider_dock_top"
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/holo_divider" />
+
+            <ProgressBar
+                android:id="@+id/mini_progress_bar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="3dp"
+                android:max="1000"
+                android:progress="0" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="60dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="10dp"
+                android:paddingEnd="0dp">
+
+                <LinearLayout
+                    android:id="@+id/mini_player_clickable"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="?android:attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingEnd="6dp">
+
+                    <ImageView
+                        android:id="@+id/iv_now_playing_art"
+                        android:layout_width="42dp"
+                        android:layout_height="42dp"
+                        android:background="#12171D"
+                        android:contentDescription="@string/holo_cd_album_art"
+                        android:padding="1dp"
+                        android:scaleType="centerCrop" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/tv_now_playing_title"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:ellipsize="marquee"
+                            android:focusable="true"
+                            android:focusableInTouchMode="true"
+                            android:marqueeRepeatLimit="marquee_forever"
+                            android:scrollHorizontally="true"
+                            android:singleLine="true"
+                            android:text="@string/holo_idle_title"
+                            android:textColor="@color/holo_text_primary"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tv_now_playing_artist"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:ellipsize="end"
+                            android:singleLine="true"
+                            android:text="@string/holo_idle_artist"
+                            android:textColor="@color/holo_blue_light"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <ImageButton
+                    android:id="@+id/btn_previous"
+                    android:layout_width="46dp"
+                    android:layout_height="match_parent"
+                    android:background="?android:attr/selectableItemBackground"
+                    android:contentDescription="@string/holo_cd_previous"
+                    android:scaleType="centerInside"
+                    android:src="@android:drawable/ic_media_previous" />
+
+                <ImageButton
+                    android:id="@+id/btn_play_pause"
+                    android:layout_width="52dp"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@string/holo_cd_play_pause"
+                    android:scaleType="centerInside"
+                    android:src="@android:drawable/ic_media_play" />
+
+                <ImageButton
+                    android:id="@+id/btn_next"
+                    android:layout_width="46dp"
+                    android:layout_height="match_parent"
+                    android:background="?android:attr/selectableItemBackground"
+                    android:contentDescription="@string/holo_cd_next"
+                    android:scaleType="centerInside"
+                    android:src="@android:drawable/ic_media_next" />
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Full-Screen Now Playing Screen -->
+    <LinearLayout
+        android:id="@+id/now_playing_screen"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="true"
+        android:focusable="true"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/np_header_bar"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="6dp"
+            android:paddingEnd="8dp">
+
+            <ImageButton
+                android:id="@+id/btn_np_collapse"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?android:attr/selectableItemBackground"
+                android:contentDescription="@string/np_cd_collapse"
+                android:scaleType="centerInside" />
 
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:layout_marginEnd="6dp"
+                android:layout_marginStart="6dp"
                 android:layout_weight="1"
                 android:orientation="vertical">
 
                 <TextView
-                    android:id="@+id/tv_now_playing_title"
-                    android:layout_width="match_parent"
+                    android:id="@+id/tv_np_header_title"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:ellipsize="marquee"
-                    android:focusable="true"
-                    android:focusableInTouchMode="true"
-                    android:marqueeRepeatLimit="marquee_forever"
-                    android:scrollHorizontally="true"
-                    android:singleLine="true"
-                    android:text="@string/holo_idle_title"
-                    android:textColor="@color/holo_text_primary"
-                    android:textSize="15sp"
+                    android:text="@string/np_title"
+                    android:textSize="16sp"
                     android:textStyle="bold" />
 
                 <TextView
-                    android:id="@+id/tv_now_playing_artist"
-                    android:layout_width="match_parent"
+                    android:id="@+id/tv_np_queue_pos"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:ellipsize="end"
-                    android:singleLine="true"
-                    android:text="@string/holo_idle_artist"
-                    android:textColor="@color/holo_blue_light"
-                    android:textSize="12sp" />
+                    android:textSize="11sp"
+                    android:typeface="monospace" />
             </LinearLayout>
 
             <ImageButton
-                android:id="@+id/btn_edit_album_art"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:id="@+id/btn_np_edit_art"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
                 android:background="?android:attr/selectableItemBackground"
                 android:contentDescription="@string/holo_cd_edit_art"
                 android:scaleType="centerInside"
                 android:src="@android:drawable/ic_menu_gallery" />
         </LinearLayout>
 
-        <!-- Holo SeekBar with Elapsed & Total Duration -->
+        <View
+            android:id="@+id/divider_np_top"
+            android:layout_width="match_parent"
+            android:layout_height="1dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp">
+
+            <FrameLayout
+                android:id="@+id/np_art_frame"
+                android:layout_width="248dp"
+                android:layout_height="248dp"
+                android:padding="2dp">
+
+                <ImageView
+                    android:id="@+id/iv_np_artwork"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clickable="true"
+                    android:contentDescription="@string/holo_cd_album_art"
+                    android:focusable="true"
+                    android:scaleType="centerCrop" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/tv_np_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:ellipsize="marquee"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:gravity="center"
+                android:marqueeRepeatLimit="marquee_forever"
+                android:scrollHorizontally="true"
+                android:singleLine="true"
+                android:text="@string/holo_idle_title"
+                android:textSize="19sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_np_artist"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:singleLine="true"
+                android:text="@string/holo_idle_artist"
+                android:textSize="13sp" />
+        </LinearLayout>
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingStart="14dp"
-            android:paddingTop="2dp"
-            android:paddingEnd="14dp"
-            android:paddingBottom="6dp">
+            android:paddingStart="18dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="18dp"
+            android:paddingBottom="8dp">
 
             <TextView
-                android:id="@+id/tv_elapsed_time"
+                android:id="@+id/tv_np_elapsed"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:minWidth="38dp"
+                android:minWidth="40dp"
                 android:text="@string/holo_zero_time"
-                android:textColor="@color/holo_blue_light"
                 android:textSize="12sp"
                 android:typeface="monospace" />
 
             <SeekBar
-                android:id="@+id/seek_bar"
+                android:id="@+id/seek_bar_np"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:layout_marginEnd="6dp"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
                 android:layout_weight="1"
                 android:max="1000"
                 android:progress="0" />
 
             <TextView
-                android:id="@+id/tv_total_time"
+                android:id="@+id/tv_np_total"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:gravity="end"
-                android:minWidth="38dp"
+                android:minWidth="40dp"
                 android:text="@string/holo_zero_time"
-                android:textColor="@color/holo_text_secondary"
                 android:textSize="12sp"
                 android:typeface="monospace" />
         </LinearLayout>
 
-        <!-- Thin 1dp #33FFFFFF divider above segmented Holo button bar -->
         <View
+            android:id="@+id/divider_np_bottom"
             android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="@color/holo_divider" />
+            android:layout_height="1dp" />
 
-        <!-- Segmented Holo Media Transport Controls using strictly SDK icons -->
         <LinearLayout
+            android:id="@+id/np_transport_bar"
             android:layout_width="match_parent"
-            android:layout_height="52dp"
+            android:layout_height="76dp"
             android:gravity="center"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp">
 
             <ImageButton
-                android:id="@+id/btn_previous"
+                android:id="@+id/btn_np_shuffle"
                 android:layout_width="0dp"
-                android:layout_height="match_parent"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:background="?android:attr/selectableItemBackground"
+                android:contentDescription="@string/np_cd_shuffle"
+                android:scaleType="centerInside" />
+
+            <ImageButton
+                android:id="@+id/btn_np_prev"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
                 android:layout_weight="1"
                 android:background="?android:attr/selectableItemBackground"
                 android:contentDescription="@string/holo_cd_previous"
                 android:scaleType="centerInside"
                 android:src="@android:drawable/ic_media_previous" />
 
-            <View
-                android:layout_width="1dp"
-                android:layout_height="28dp"
-                android:background="@color/holo_divider" />
-
             <ImageButton
-                android:id="@+id/btn_play_pause"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:background="?android:attr/selectableItemBackground"
+                android:id="@+id/btn_np_play_pause"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
                 android:contentDescription="@string/holo_cd_play_pause"
                 android:scaleType="centerInside"
                 android:src="@android:drawable/ic_media_play" />
 
-            <View
-                android:layout_width="1dp"
-                android:layout_height="28dp"
-                android:background="@color/holo_divider" />
-
             <ImageButton
-                android:id="@+id/btn_next"
+                android:id="@+id/btn_np_next"
                 android:layout_width="0dp"
-                android:layout_height="match_parent"
+                android:layout_height="46dp"
                 android:layout_weight="1"
                 android:background="?android:attr/selectableItemBackground"
                 android:contentDescription="@string/holo_cd_next"
                 android:scaleType="centerInside"
                 android:src="@android:drawable/ic_media_next" />
+
+            <ImageButton
+                android:id="@+id/btn_np_repeat"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:background="?android:attr/selectableItemBackground"
+                android:contentDescription="@string/np_cd_repeat"
+                android:scaleType="centerInside" />
         </LinearLayout>
     </LinearLayout>
 
-</LinearLayout>
+    <!-- Settings Screen -->
+    <LinearLayout
+        android:id="@+id/settings_screen"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="true"
+        android:focusable="true"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/settings_header_bar"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="6dp"
+            android:paddingEnd="14dp">
+
+            <ImageButton
+                android:id="@+id/btn_settings_back"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?android:attr/selectableItemBackground"
+                android:contentDescription="@string/settings_cd_back"
+                android:scaleType="centerInside" />
+
+            <TextView
+                android:id="@+id/tv_settings_header_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:text="@string/settings_title"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <View
+            android:id="@+id/divider_settings_top"
+            android:layout_width="match_parent"
+            android:layout_height="1dp" />
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:id="@+id/tv_settings_theme_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/settings_section_theme"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <RadioGroup
+                    android:id="@+id/rg_themes"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="vertical">
+
+                    <RadioButton
+                        android:id="@+id/rb_theme_holo"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:paddingStart="10dp"
+                        android:text="Android Holo"
+                        android:textSize="15sp" />
+
+                    <RadioButton
+                        android:id="@+id/rb_theme_aero"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:paddingStart="10dp"
+                        android:text="Frutiger Aero"
+                        android:textSize="15sp" />
+
+                    <RadioButton
+                        android:id="@+id/rb_theme_skeuo"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:paddingStart="10dp"
+                        android:text="Skeuomorphic"
+                        android:textSize="15sp" />
+                </RadioGroup>
+
+                <TextView
+                    android:id="@+id/tv_theme_summary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textSize="12sp" />
+
+                <View
+                    android:id="@+id/divider_settings_mid"
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="16dp"
+                    android:layout_marginBottom="16dp" />
+
+                <TextView
+                    android:id="@+id/tv_settings_library_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/settings_section_library"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <CheckBox
+                    android:id="@+id/cb_show_list_art"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/settings_show_thumbnails"
+                    android:textSize="14sp" />
+
+                <Button
+                    android:id="@+id/btn_settings_sort"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/settings_sort_order"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btn_settings_rescan"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/settings_rescan_audio"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </ScrollView>
+    </LinearLayout>
+
+</FrameLayout>
