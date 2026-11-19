@@ -1,7 +1,9 @@
-import type { CSSProperties } from 'react';
-import type { RepeatMode, TrackRecord } from '../types/music';
+import { useState, type CSSProperties } from 'react';
+import type { AppThemeId, RepeatMode, TrackRecord, VisualizerMode } from '../types/music';
 import { formatTime } from '../utils/audioMetadata';
+import { AudioVisualizer, VISUALIZER_MODES } from './AudioVisualizer';
 import {
+  HoloCloseIcon,
   HoloCollapseIcon,
   HoloEqualizerIcon,
   HoloImageEditIcon,
@@ -10,12 +12,15 @@ import {
   HoloPlayIcon,
   HoloPrevIcon,
   HoloRepeatIcon,
+  HoloSettingsIcon,
   HoloShuffleIcon,
   HoloVinylIcon,
 } from './HoloIcons';
 
 interface NowPlayingViewProps {
   isOpen: boolean;
+  theme: AppThemeId;
+  visualizerMode: VisualizerMode;
   track: TrackRecord | null;
   isPlaying: boolean;
   currentTime: number;
@@ -24,6 +29,11 @@ interface NowPlayingViewProps {
   repeat: RepeatMode;
   isArtworkBroken: boolean;
   queuePositionLabel: string | null;
+  getAudioMotionTarget: () => {
+    audioCtx: AudioContext | null;
+    sourceNode: AudioNode | null;
+  };
+  onChangeVisualizerMode: (mode: VisualizerMode) => void;
   onCollapse: () => void;
   onTogglePlayPause: () => void;
   onPrevious: () => void;
@@ -38,6 +48,8 @@ interface NowPlayingViewProps {
 
 export function NowPlayingView({
   isOpen,
+  theme,
+  visualizerMode,
   track,
   isPlaying,
   currentTime,
@@ -46,6 +58,8 @@ export function NowPlayingView({
   repeat,
   isArtworkBroken,
   queuePositionLabel,
+  getAudioMotionTarget,
+  onChangeVisualizerMode,
   onCollapse,
   onTogglePlayPause,
   onPrevious,
@@ -57,6 +71,9 @@ export function NowPlayingView({
   onMarkArtworkBroken,
   onOpenEqualizer,
 }: NowPlayingViewProps) {
+  const [showVisualizer, setShowVisualizer] = useState(false);
+  const [showDisplaySettings, setShowDisplaySettings] = useState(false);
+
   if (!isOpen) return null;
 
   const effectiveDuration = duration > 0 ? duration : track?.durationSec || 0;
@@ -116,34 +133,44 @@ export function NowPlayingView({
       </header>
 
       {/* Main Content */}
-      <div className="holo-scroll flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-5">
+      <div className="holo-scroll flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-4">
         <div className="flex w-full max-w-md flex-col items-center">
-          {/* Large Album Art Container */}
-          <button
-            type="button"
-            disabled={!track}
-            onClick={() => {
-              if (track) onOpenArtworkEditor(track);
-            }}
-            aria-label={track ? `Edit cover art for ${track.title}` : 'No album art'}
-            className="theme-artwork-box group relative flex aspect-square w-full max-w-[300px] items-center justify-center overflow-hidden sm:max-w-[336px] disabled:cursor-default"
-          >
-            {hasValidArt && track?.artworkDataUrl ? (
-              <img
-                src={track.artworkDataUrl}
-                alt={`${track.album} cover`}
-                onError={() => onMarkArtworkBroken(track.id)}
-                className="h-full w-full object-cover"
+          {/* Stage Area: Artwork OR audioMotion-analyzer Visualizer */}
+          {showVisualizer ? (
+            <div className="theme-artwork-box aspect-square w-full max-w-[300px] overflow-hidden sm:max-w-[336px]">
+              <AudioVisualizer
+                theme={theme}
+                mode={visualizerMode}
+                getAudioMotionTarget={getAudioMotionTarget}
               />
-            ) : (
-              <div className="flex flex-col items-center justify-center gap-2 text-[var(--accent)]">
-                <HoloVinylIcon className="h-28 w-28" />
-              </div>
-            )}
-          </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              disabled={!track}
+              onClick={() => {
+                if (track) onOpenArtworkEditor(track);
+              }}
+              aria-label={track ? `Edit cover art for ${track.title}` : 'No album art'}
+              className="theme-artwork-box group relative flex aspect-square w-full max-w-[300px] items-center justify-center overflow-hidden sm:max-w-[336px] disabled:cursor-default"
+            >
+              {hasValidArt && track?.artworkDataUrl ? (
+                <img
+                  src={track.artworkDataUrl}
+                  alt={`${track.album} cover`}
+                  onError={() => onMarkArtworkBroken(track.id)}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center gap-2 text-[var(--accent)]">
+                  <HoloVinylIcon className="h-28 w-28" />
+                </div>
+              )}
+            </button>
+          )}
 
           {/* Track Metadata */}
-          <div className="mt-6 w-full text-center">
+          <div className="mt-5 w-full text-center">
             <div className="truncate text-lg font-semibold text-[var(--text-primary)]">
               {track ? track.title : 'No track selected'}
             </div>
@@ -252,6 +279,126 @@ export function NowPlayingView({
           </div>
         </div>
       </div>
+
+      {/* Bottom-Right Corner Settings Icon (Stage Mode & Visualizer Presets) */}
+      <div className="flex shrink-0 items-center justify-end px-3 pb-3 pt-1">
+        <button
+          type="button"
+          onClick={() => setShowDisplaySettings(true)}
+          aria-label="Now Playing Display and Visualizer Settings"
+          title="Display & Visualizer"
+          className={`holo-btn flex h-10 w-10 items-center justify-center ${
+            showVisualizer ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'
+          }`}
+        >
+          <HoloSettingsIcon className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* Hidden Display & Visualizer Settings Popover Dialog */}
+      {showDisplaySettings && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-end bg-black/55 p-3 sm:items-center sm:justify-center"
+          onClick={() => setShowDisplaySettings(false)}
+        >
+          <div
+            role="dialog"
+            aria-label="Display and Visualizer Settings"
+            onClick={(e) => e.stopPropagation()}
+            className="holo-dialog-surface w-full max-w-xs overflow-hidden"
+          >
+            <div className="flex items-center justify-between border-b-2 border-[var(--accent)] px-4 py-3">
+              <h3 className="text-sm font-semibold text-[var(--accent)]">Display & Visualizer</h3>
+              <button
+                type="button"
+                onClick={() => setShowDisplaySettings(false)}
+                aria-label="Close display settings"
+                className="flex h-8 w-8 items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              >
+                <HoloCloseIcon className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-4">
+              <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">
+                Stage Mode
+              </div>
+              <div
+                className="grid grid-cols-2 border border-[var(--divider-strong)]"
+                style={{
+                  backgroundColor: 'var(--rocker-bg)',
+                  borderRadius: 'var(--control-radius)',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setShowVisualizer(false)}
+                  className="py-2 text-xs font-bold uppercase tracking-wider"
+                  style={
+                    !showVisualizer
+                      ? {
+                          backgroundColor: 'var(--accent)',
+                          color: 'var(--rocker-on-text)',
+                        }
+                      : { color: 'var(--text-secondary)' }
+                  }
+                >
+                  Artwork
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowVisualizer(true)}
+                  className="border-l border-[var(--divider-strong)] py-2 text-xs font-bold uppercase tracking-wider"
+                  style={
+                    showVisualizer
+                      ? {
+                          backgroundColor: 'var(--accent)',
+                          color: 'var(--rocker-on-text)',
+                        }
+                      : { color: 'var(--text-secondary)' }
+                  }
+                >
+                  Visualizer
+                </button>
+              </div>
+
+              <div className="mb-2 mt-4 text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">
+                Visualizer Preset
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {VISUALIZER_MODES.map((m) => {
+                  const active = visualizerMode === m.id;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => {
+                        onChangeVisualizerMode(m.id);
+                        setShowVisualizer(true);
+                      }}
+                      className={`py-2 text-xs font-semibold ${
+                        active ? 'holo-btn-primary' : 'holo-btn text-[var(--text-secondary)]'
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="border-t border-[var(--divider)]">
+              <button
+                type="button"
+                onClick={() => setShowDisplaySettings(false)}
+                className="w-full py-3 text-center text-xs font-bold uppercase tracking-wider text-[var(--accent)] hover:bg-[var(--surface-row-hover)]"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

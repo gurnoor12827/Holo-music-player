@@ -22,15 +22,21 @@ import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
+import android.media.audiofx.PresetReverb;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.MediaStore;
 import android.provider.Settings;
 import android.text.Editable;
@@ -111,6 +117,25 @@ public class MainActivity extends Activity {
     private static final String KEY_SHOW_LIST_ART = "show_list_art";
     private static final String KEY_SHUFFLE = "shuffle_enabled";
     private static final String KEY_REPEAT_MODE = "repeat_mode";
+    private static final String KEY_SHAKE_TO_SKIP = "shake_to_skip";
+    private static final String KEY_CROSSFADE_SEC = "crossfade_seconds";
+    private static final String KEY_REVERB_PRESET = "reverb_preset";
+    private static final String KEY_VISUALIZER_MODE = "visualizer_mode";
+
+    private static final String[] REVERB_LABELS = new String[]{
+            "Off",
+            "Small Room",
+            "Medium Hall",
+            "Large Hall",
+            "Studio Plate"
+    };
+    private static final int[] CROSSFADE_VALUES = new int[]{0, 2, 4, 6};
+    private static final String[] CROSSFADE_LABELS = new String[]{
+            "Off",
+            "2 seconds",
+            "4 seconds",
+            "6 seconds"
+    };
 
     public static final class Song {
         final long id;
@@ -192,12 +217,15 @@ public class MainActivity extends Activity {
     private ImageButton btnNpPlayPause;
     private ImageButton btnNpNext;
     private ImageButton btnNpRepeat;
+    private ImageButton btnNpVizSettings;
+    private AudioVisualizerView audioVisualizer;
 
     // Settings screen controls
     private LinearLayout settingsScreen;
     private LinearLayout settingsHeaderBar;
     private View dividerSettingsTop;
     private View dividerSettingsMid;
+    private View dividerSettingsFx;
     private ImageButton btnSettingsBack;
     private TextView tvSettingsHeaderTitle;
     private TextView tvSettingsThemeLabel;
@@ -210,11 +238,25 @@ public class MainActivity extends Activity {
     private CheckBox cbShowListArt;
     private Button btnSettingsSort;
     private Button btnSettingsRescan;
+    private TextView tvSettingsFxLabel;
+    private CheckBox cbShakeToSkip;
+    private Button btnSettingsCrossfade;
+    private Button btnSettingsReverb;
+    private Button btnSettingsVisualizer;
+    private View dividerSettingsAbout;
+    private TextView tvSettingsAboutLabel;
+    private TextView tvSettingsVersion;
 
     private SongAdapter songAdapter;
     private MediaPlayer mediaPlayer;
+    private MediaPlayer fadingOutPlayer;
+    private PresetReverb presetReverb;
     private AudioManager audioManager;
     private AudioFocusRequest audioFocusRequest;
+    private SensorManager sensorManager;
+    private Sensor accelerometer;
+    private boolean isShakeListenerRegistered = false;
+    private long lastShakeSkipMs = 0L;
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
@@ -234,14 +276,23 @@ public class MainActivity extends Activity {
     private boolean resumeOnFocusGain = false;
     private boolean hasRequestedPermissionOnce = false;
     private boolean isNowPlayingOpen = false;
+    private boolean isNowPlayingVisualizerVisible = false;
     private boolean isSettingsOpen = false;
     private Object backInvokedCallback;
     private boolean isBackCallbackRegistered = false;
+
+    private long crossfadeStartMs = 0L;
+    private long crossfadeDurationMs = 0L;
+    private boolean autoCrossfadeTriggeredForCurrentTrack = false;
 
     private ThemeConfig currentTheme = ThemeConfig.HOLO;
     private boolean showListArtwork = true;
     private boolean shuffleEnabled = false;
     private int repeatMode = REPEAT_OFF;
+    private boolean shakeToSkipEnabled = false;
+    private int crossfadeSeconds = 0;
+    private int reverbPresetIndex = 0;
+    private int visualizerMode = AudioVisualizerView.MODE_WATER_REFLEX;
 
     private int activeTab = TAB_ALL_SONGS;
     private int currentSortMode = SORT_TITLE_ASC;
@@ -254,6 +305,65 @@ public class MainActivity extends Activity {
             if (mediaPlayer != null && isMediaPrepared && isPlayingSafe()) {
                 uiHandler.postDelayed(this, 250L);
             }
+        }
+    };
+
+    private final Runnable crossfadeRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (fadingOutPlayer == null || crossfadeDurationMs <= 0L) {
+                return;
+            }
+            long elapsed = SystemClock.uptimeMillis() - crossfadeStartMs;
+            float t = Math.max(0f, Math.min(1f, (float) elapsed / (float) crossfadeDurationMs));
+            float outVol = Math.max(0f, 1.0f - t);
+            float inVol = t;
+            try {
+                fadingOutPlayer.setVolume(outVol, outVol);
+            } catch (IllegalStateException ignored) {
+            }
+            if (mediaPlayer != null && isMediaPrepared) {
+                try {
+                    mediaPlayer.setVolume(inVol, inVol);
+                } catch (IllegalStateException ignored) {
+                }
+            }
+            if (t >= 1.0f) {
+                releaseFadingOutPlayer();
+                if (mediaPlayer != null && isMediaPrepared) {
+                    try {
+                        mediaPlayer.setVolume(1.0f, 1.0f);
+                    } catch (IllegalStateException ignored) {
+                    }
+                }
+            } else {
+                uiHandler.postDelayed(this, 50L);
+            }
+        }
+    };
+
+    private final SensorEventListener shakeSensorListener = new SensorEventListener() {
+        @Override
+        public void onSensorChanged(SensorEvent event) {
+            if (!shakeToSkipEnabled || event == null || event.values == null || event.values.length < 3) {
+                return;
+            }
+            float gX = event.values[0] / SensorManager.GRAVITY_EARTH;
+            float gY = event.values[1] / SensorManager.GRAVITY_EARTH;
+            float gZ = event.values[2] / SensorManager.GRAVITY_EARTH;
+            double gForce = Math.sqrt(gX * gX + gY * gY + gZ * gZ);
+            if (gForce > 2.35d) {
+                long now = SystemClock.uptimeMillis();
+                if (now - lastShakeSkipMs > 1400L) {
+                    lastShakeSkipMs = now;
+                    playNext();
+                    Toast.makeText(MainActivity.this, "Skipped track (shake)", Toast.LENGTH_SHORT).show();
+                }
+            }
+        }
+
+        @Override
+        public void onAccuracyChanged(Sensor sensor, int accuracy) {
         }
     };
 
@@ -302,6 +412,10 @@ public class MainActivity extends Activity {
         loadPreferences();
 
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        if (sensorManager != null) {
+            accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        }
 
         bindViews();
         setupActionBarTabs();
@@ -338,6 +452,12 @@ public class MainActivity extends Activity {
         showListArtwork = prefs.getBoolean(KEY_SHOW_LIST_ART, true);
         shuffleEnabled = prefs.getBoolean(KEY_SHUFFLE, false);
         repeatMode = prefs.getInt(KEY_REPEAT_MODE, REPEAT_OFF);
+        shakeToSkipEnabled = prefs.getBoolean(KEY_SHAKE_TO_SKIP, false);
+        crossfadeSeconds = prefs.getInt(KEY_CROSSFADE_SEC, 0);
+        reverbPresetIndex = Math.max(0, Math.min(REVERB_LABELS.length - 1, prefs.getInt(KEY_REVERB_PRESET, 0)));
+        visualizerMode = Math.max(AudioVisualizerView.MODE_WATER_REFLEX,
+                Math.min(AudioVisualizerView.MODE_AREA_LINE,
+                        prefs.getInt(KEY_VISUALIZER_MODE, AudioVisualizerView.MODE_WATER_REFLEX)));
 
         Set<String> storedIds = prefs.getStringSet(KEY_FAVORITE_IDS, Collections.<String>emptySet());
         favoriteSongIds.clear();
@@ -409,11 +529,14 @@ public class MainActivity extends Activity {
         btnNpPlayPause = findViewById(R.id.btn_np_play_pause);
         btnNpNext = findViewById(R.id.btn_np_next);
         btnNpRepeat = findViewById(R.id.btn_np_repeat);
+        btnNpVizSettings = findViewById(R.id.btn_np_viz_settings);
+        audioVisualizer = findViewById(R.id.audio_visualizer);
 
         settingsScreen = findViewById(R.id.settings_screen);
         settingsHeaderBar = findViewById(R.id.settings_header_bar);
         dividerSettingsTop = findViewById(R.id.divider_settings_top);
         dividerSettingsMid = findViewById(R.id.divider_settings_mid);
+        dividerSettingsFx = findViewById(R.id.divider_settings_fx);
         btnSettingsBack = findViewById(R.id.btn_settings_back);
         tvSettingsHeaderTitle = findViewById(R.id.tv_settings_header_title);
         tvSettingsThemeLabel = findViewById(R.id.tv_settings_theme_label);
@@ -426,12 +549,23 @@ public class MainActivity extends Activity {
         cbShowListArt = findViewById(R.id.cb_show_list_art);
         btnSettingsSort = findViewById(R.id.btn_settings_sort);
         btnSettingsRescan = findViewById(R.id.btn_settings_rescan);
+        tvSettingsFxLabel = findViewById(R.id.tv_settings_fx_label);
+        cbShakeToSkip = findViewById(R.id.cb_shake_to_skip);
+        btnSettingsCrossfade = findViewById(R.id.btn_settings_crossfade);
+        btnSettingsReverb = findViewById(R.id.btn_settings_reverb);
+        btnSettingsVisualizer = findViewById(R.id.btn_settings_visualizer);
+        dividerSettingsAbout = findViewById(R.id.divider_settings_about);
+        tvSettingsAboutLabel = findViewById(R.id.tv_settings_about_label);
+        tvSettingsVersion = findViewById(R.id.tv_settings_version);
 
         tvNowPlayingTitle.setSelected(true);
         tvNpTitle.setSelected(true);
         listSongs.setEmptyView(emptyView);
 
         cbShowListArt.setChecked(showListArtwork);
+        cbShakeToSkip.setChecked(shakeToSkipEnabled);
+        audioVisualizer.setMode(visualizerMode);
+        updateAudioEffectsButtonLabels();
         if (currentTheme.id == ThemeConfig.THEME_AERO) {
             rbThemeAero.setChecked(true);
         } else if (currentTheme.id == ThemeConfig.THEME_SKEUOMORPHIC) {
@@ -521,6 +655,8 @@ public class MainActivity extends Activity {
         ThemeConfig.tintButton(btnNpPrev, theme.textPrimary);
         ThemeConfig.tintButton(btnNpPlayPause, theme.onAccentText);
         ThemeConfig.tintButton(btnNpNext, theme.textPrimary);
+        audioVisualizer.setTheme(theme);
+        styleNowPlayingCornerSettingsButton(theme, radius);
         updateShuffleRepeatButtons();
 
         // Settings screen
@@ -528,6 +664,7 @@ public class MainActivity extends Activity {
         settingsHeaderBar.setBackground(ThemeConfig.createVerticalSurface(theme.dockTop, theme.dockBottom, 0, 0, 0));
         dividerSettingsTop.setBackgroundColor(theme.dividerColor);
         dividerSettingsMid.setBackgroundColor(theme.dividerColor);
+        dividerSettingsFx.setBackgroundColor(theme.dividerColor);
         btnSettingsBack.setImageBitmap(ThemeConfig.createBackArrowBitmap(this, theme.textPrimary));
         tvSettingsHeaderTitle.setTextColor(theme.textPrimary);
         tvSettingsThemeLabel.setTextColor(theme.accent);
@@ -542,10 +679,73 @@ public class MainActivity extends Activity {
         btnSettingsSort.setTextColor(theme.textPrimary);
         btnSettingsRescan.setBackground(ThemeConfig.createControlSurface(this, theme, true, radius));
         btnSettingsRescan.setTextColor(theme.onAccentText);
+        tvSettingsFxLabel.setTextColor(theme.accent);
+        cbShakeToSkip.setTextColor(theme.textPrimary);
+        btnSettingsCrossfade.setBackground(ThemeConfig.createControlSurface(this, theme, false, radius));
+        btnSettingsCrossfade.setTextColor(theme.textPrimary);
+        btnSettingsReverb.setBackground(ThemeConfig.createControlSurface(this, theme, false, radius));
+        btnSettingsReverb.setTextColor(theme.textPrimary);
+        btnSettingsVisualizer.setBackground(ThemeConfig.createControlSurface(this, theme, false, radius));
+        btnSettingsVisualizer.setTextColor(theme.textPrimary);
+        dividerSettingsAbout.setBackgroundColor(theme.dividerColor);
+        tvSettingsAboutLabel.setTextColor(theme.accent);
+        tvSettingsVersion.setTextColor(theme.textPrimary);
 
         updateNowPlayingArtworkView(currentSongId);
         updatePlayPauseIcon(isPlayingSafe());
         songAdapter.notifyDataSetChanged();
+    }
+
+    private void styleNowPlayingCornerSettingsButton(ThemeConfig theme, int radius) {
+        if (btnNpVizSettings == null) {
+            return;
+        }
+        btnNpVizSettings.setBackground(ThemeConfig.createControlSurface(
+                this, theme, isNowPlayingVisualizerVisible, radius));
+        ThemeConfig.tintButton(
+                btnNpVizSettings,
+                isNowPlayingVisualizerVisible ? theme.onAccentText : theme.textPrimary);
+    }
+
+    private void setNowPlayingVisualizerVisible(boolean visible) {
+        isNowPlayingVisualizerVisible = visible;
+        ivNpArtwork.setVisibility(visible ? View.GONE : View.VISIBLE);
+        audioVisualizer.setVisibility(visible ? View.VISIBLE : View.GONE);
+        int radius = currentTheme.id == ThemeConfig.THEME_HOLO ? 2 : (currentTheme.id == ThemeConfig.THEME_AERO ? 8 : 6);
+        styleNowPlayingCornerSettingsButton(currentTheme, radius);
+        long pos = 0L;
+        if (mediaPlayer != null && isMediaPrepared) {
+            try {
+                pos = mediaPlayer.getCurrentPosition();
+            } catch (IllegalStateException ignored) {
+            }
+        }
+        audioVisualizer.setPlayingState(isPlayingSafe(), currentSongId, pos);
+    }
+
+    private void setVisualizerMode(int mode) {
+        visualizerMode = Math.max(AudioVisualizerView.MODE_WATER_REFLEX,
+                Math.min(AudioVisualizerView.MODE_AREA_LINE, mode));
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .edit()
+                .putInt(KEY_VISUALIZER_MODE, visualizerMode)
+                .apply();
+        audioVisualizer.setMode(visualizerMode);
+        updateAudioEffectsButtonLabels();
+    }
+
+    private void updateAudioEffectsButtonLabels() {
+        if (btnSettingsCrossfade != null) {
+            String cf = crossfadeSeconds <= 0 ? "Off" : (crossfadeSeconds + "s");
+            btnSettingsCrossfade.setText(getString(R.string.settings_crossfade_prefix) + cf);
+        }
+        if (btnSettingsReverb != null) {
+            btnSettingsReverb.setText(getString(R.string.settings_reverb_prefix) + REVERB_LABELS[reverbPresetIndex]);
+        }
+        if (btnSettingsVisualizer != null) {
+            btnSettingsVisualizer.setText(getString(R.string.settings_visualizer_prefix)
+                    + AudioVisualizerView.MODE_LABELS[visualizerMode]);
+        }
     }
 
     private void updateActionBarLabels() {
@@ -553,7 +753,7 @@ public class MainActivity extends Activity {
         if (actionBar == null) {
             return;
         }
-        SpannableString title = new SpannableString("Tracks");
+        SpannableString title = new SpannableString("Holo Player");
         title.setSpan(new ForegroundColorSpan(currentTheme.actionBarText), 0, title.length(),
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         actionBar.setTitle(title);
@@ -597,6 +797,7 @@ public class MainActivity extends Activity {
         }
         updateQueueCounterText();
         updateNowPlayingArtworkView(currentSongId);
+        setNowPlayingVisualizerVisible(isNowPlayingVisualizerVisible);
         updateBackNavigationCallback();
     }
 
@@ -686,7 +887,7 @@ public class MainActivity extends Activity {
             return;
         }
         updateActionBarLabels();
-        actionBar.setIcon(android.R.drawable.ic_media_play);
+        actionBar.setDisplayShowHomeEnabled(false);
         actionBar.setNavigationMode(ActionBar.NAVIGATION_MODE_TABS);
 
         ActionBar.TabListener tabListener = new ActionBar.TabListener() {
@@ -913,6 +1114,51 @@ public class MainActivity extends Activity {
             }
         });
 
+        btnNpVizSettings.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showNowPlayingDisplayDialog();
+            }
+        });
+
+        cbShakeToSkip.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                shakeToSkipEnabled = isChecked;
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                        .edit()
+                        .putBoolean(KEY_SHAKE_TO_SKIP, shakeToSkipEnabled)
+                        .apply();
+                updateShakeListenerRegistration();
+                if (isChecked && accelerometer == null) {
+                    Toast.makeText(MainActivity.this,
+                            "No accelerometer sensor detected on this device.",
+                            Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
+
+        btnSettingsCrossfade.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showCrossfadeDialog();
+            }
+        });
+
+        btnSettingsReverb.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showReverbDialog();
+            }
+        });
+
+        btnSettingsVisualizer.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showVisualizerDialog();
+            }
+        });
+
         btnEmptyAction.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -1006,6 +1252,201 @@ public class MainActivity extends Activity {
         builder.show();
     }
 
+    private void showCrossfadeDialog() {
+        int checked = 0;
+        for (int i = 0; i < CROSSFADE_VALUES.length; i++) {
+            if (CROSSFADE_VALUES[i] == crossfadeSeconds) {
+                checked = i;
+                break;
+            }
+        }
+        AlertDialog.Builder builder = createThemedDialogBuilder();
+        builder.setTitle("Crossfade Duration");
+        builder.setSingleChoiceItems(CROSSFADE_LABELS, checked, new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                crossfadeSeconds = CROSSFADE_VALUES[which];
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                        .edit()
+                        .putInt(KEY_CROSSFADE_SEC, crossfadeSeconds)
+                        .apply();
+                updateAudioEffectsButtonLabels();
+                dialog.dismiss();
+            }
+        });
+        builder.setNegativeButton("Cancel", null);
+        builder.show();
+    }
+
+    private void showReverbDialog() {
+        AlertDialog.Builder builder = createThemedDialogBuilder();
+        builder.setTitle("Reverb Preset");
+        builder.setSingleChoiceItems(REVERB_LABELS, reverbPresetIndex, new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                reverbPresetIndex = which;
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                        .edit()
+                        .putInt(KEY_REVERB_PRESET, reverbPresetIndex)
+                        .apply();
+                applyReverbToPlayer(mediaPlayer);
+                updateAudioEffectsButtonLabels();
+                dialog.dismiss();
+            }
+        });
+        builder.setNegativeButton("Cancel", null);
+        builder.show();
+    }
+
+    private void showVisualizerDialog() {
+        AlertDialog.Builder builder = createThemedDialogBuilder();
+        builder.setTitle("Visualizer Preset");
+        builder.setSingleChoiceItems(AudioVisualizerView.MODE_LABELS, visualizerMode, new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                setVisualizerMode(which);
+                dialog.dismiss();
+            }
+        });
+        builder.setNegativeButton("Cancel", null);
+        builder.show();
+    }
+
+    private void showNowPlayingDisplayDialog() {
+        final int radius = currentTheme.id == ThemeConfig.THEME_HOLO ? 2 : (currentTheme.id == ThemeConfig.THEME_AERO ? 8 : 6);
+        int pad = dpToPx(16);
+
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(pad, pad, pad, pad);
+        scroll.addView(root);
+
+        TextView tvStageLabel = new TextView(this);
+        tvStageLabel.setText("STAGE MODE");
+        tvStageLabel.setTextColor(currentTheme.accent);
+        tvStageLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        tvStageLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        root.addView(tvStageLabel);
+
+        LinearLayout stageRow = new LinearLayout(this);
+        stageRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams stageRowLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(40));
+        stageRowLp.topMargin = dpToPx(8);
+        root.addView(stageRow, stageRowLp);
+
+        final Button btnArtworkStage = new Button(this);
+        btnArtworkStage.setText("ARTWORK");
+        btnArtworkStage.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        btnArtworkStage.setTypeface(Typeface.DEFAULT_BOLD);
+        stageRow.addView(btnArtworkStage, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+
+        final Button btnVisualizerStage = new Button(this);
+        btnVisualizerStage.setText("VISUALIZER");
+        btnVisualizerStage.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        btnVisualizerStage.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams vizStageLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
+        vizStageLp.setMarginStart(dpToPx(6));
+        stageRow.addView(btnVisualizerStage, vizStageLp);
+
+        TextView tvPresetLabel = new TextView(this);
+        tvPresetLabel.setText("VISUALIZER PRESET");
+        tvPresetLabel.setTextColor(currentTheme.accent);
+        tvPresetLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        tvPresetLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams presetLabelLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        presetLabelLp.topMargin = dpToPx(16);
+        presetLabelLp.bottomMargin = dpToPx(8);
+        root.addView(tvPresetLabel, presetLabelLp);
+
+        final Button[] presetBtns = new Button[AudioVisualizerView.MODE_LABELS.length];
+        for (int row = 0; row < 3; row++) {
+            LinearLayout presetRow = new LinearLayout(this);
+            presetRow.setOrientation(LinearLayout.HORIZONTAL);
+            LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(38));
+            if (row > 0) {
+                rowLp.topMargin = dpToPx(6);
+            }
+            root.addView(presetRow, rowLp);
+
+            for (int col = 0; col < 2; col++) {
+                final int idx = row * 2 + col;
+                Button btnPreset = new Button(this);
+                btnPreset.setText(AudioVisualizerView.MODE_LABELS[idx]);
+                btnPreset.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+                btnPreset.setTypeface(Typeface.DEFAULT_BOLD);
+                LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
+                        0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
+                if (col > 0) {
+                    btnLp.setMarginStart(dpToPx(6));
+                }
+                presetRow.addView(btnPreset, btnLp);
+                presetBtns[idx] = btnPreset;
+            }
+        }
+
+        final Runnable refreshDialogStates = new Runnable() {
+            @Override
+            public void run() {
+                btnArtworkStage.setBackground(ThemeConfig.createControlSurface(
+                        MainActivity.this, currentTheme, !isNowPlayingVisualizerVisible, radius));
+                btnArtworkStage.setTextColor(!isNowPlayingVisualizerVisible
+                        ? currentTheme.onAccentText
+                        : currentTheme.textPrimary);
+
+                btnVisualizerStage.setBackground(ThemeConfig.createControlSurface(
+                        MainActivity.this, currentTheme, isNowPlayingVisualizerVisible, radius));
+                btnVisualizerStage.setTextColor(isNowPlayingVisualizerVisible
+                        ? currentTheme.onAccentText
+                        : currentTheme.textPrimary);
+
+                for (int i = 0; i < presetBtns.length; i++) {
+                    boolean active = i == visualizerMode;
+                    presetBtns[i].setBackground(ThemeConfig.createControlSurface(
+                            MainActivity.this, currentTheme, active, radius));
+                    presetBtns[i].setTextColor(active ? currentTheme.onAccentText : currentTheme.textPrimary);
+                }
+            }
+        };
+
+        btnArtworkStage.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                setNowPlayingVisualizerVisible(false);
+                refreshDialogStates.run();
+            }
+        });
+        btnVisualizerStage.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                setNowPlayingVisualizerVisible(true);
+                refreshDialogStates.run();
+            }
+        });
+        for (int i = 0; i < presetBtns.length; i++) {
+            final int modeIdx = i;
+            presetBtns[i].setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    setVisualizerMode(modeIdx);
+                    setNowPlayingVisualizerVisible(true);
+                    refreshDialogStates.run();
+                }
+            });
+        }
+
+        refreshDialogStates.run();
+
+        AlertDialog.Builder builder = createThemedDialogBuilder();
+        builder.setTitle("Display & Visualizer");
+        builder.setView(scroll);
+        builder.setPositiveButton("Done", null);
+        builder.show();
+    }
+
     private String getRequiredAudioPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             return Manifest.permission.READ_MEDIA_AUDIO;
@@ -1070,10 +1511,10 @@ public class MainActivity extends Activity {
         tvEmptyTitle.setText("Audio Storage Permission Needed");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             tvEmptyMessage.setText(
-                    "Grant Music & Audio access (READ_MEDIA_AUDIO) so Holo Music can scan and play songs stored on your phone.");
+                    "Grant Music & Audio access (READ_MEDIA_AUDIO) so Holo Player can scan and play songs stored on your phone.");
         } else {
             tvEmptyMessage.setText(
-                    "Grant storage access (READ_EXTERNAL_STORAGE) so Holo Music can scan and play songs stored on your phone.");
+                    "Grant storage access (READ_EXTERNAL_STORAGE) so Holo Player can scan and play songs stored on your phone.");
         }
         btnEmptyAction.setText("GRANT AUDIO PERMISSION");
         btnEmptyAction.setVisibility(View.VISIBLE);
@@ -1315,6 +1756,65 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void releaseFadingOutPlayer() {
+        uiHandler.removeCallbacks(crossfadeRunnable);
+        if (fadingOutPlayer != null) {
+            try {
+                if (fadingOutPlayer.isPlaying()) {
+                    fadingOutPlayer.stop();
+                }
+            } catch (IllegalStateException ignored) {
+            }
+            try {
+                fadingOutPlayer.release();
+            } catch (Exception ignored) {
+            }
+            fadingOutPlayer = null;
+        }
+        crossfadeDurationMs = 0L;
+    }
+
+    private void applyReverbToPlayer(MediaPlayer player) {
+        if (player == null) {
+            return;
+        }
+        try {
+            if (reverbPresetIndex <= 0) {
+                player.setAuxEffectSendLevel(0.0f);
+                if (presetReverb != null) {
+                    presetReverb.setEnabled(false);
+                }
+                return;
+            }
+            if (presetReverb == null) {
+                presetReverb = new PresetReverb(0, 0);
+            }
+            short presetCode;
+            switch (reverbPresetIndex) {
+                case 1:
+                    presetCode = PresetReverb.PRESET_SMALLROOM;
+                    break;
+                case 2:
+                    presetCode = PresetReverb.PRESET_MEDIUMHALL;
+                    break;
+                case 3:
+                    presetCode = PresetReverb.PRESET_LARGEHALL;
+                    break;
+                case 4:
+                    presetCode = PresetReverb.PRESET_PLATE;
+                    break;
+                default:
+                    presetCode = PresetReverb.PRESET_NONE;
+                    break;
+            }
+            presetReverb.setPreset(presetCode);
+            presetReverb.setEnabled(true);
+            player.attachAuxEffect(presetReverb.getId());
+            player.setAuxEffectSendLevel(0.78f);
+        } catch (Exception ignored) {
+        }
+    }
+
     private void playSong(final Song song) {
         if (song == null) {
             return;
@@ -1323,7 +1823,37 @@ public class MainActivity extends Activity {
         requestAudioFocusIfNeeded();
         uiHandler.removeCallbacks(progressRunnable);
 
-        if (mediaPlayer == null) {
+        boolean shouldCrossfade = crossfadeSeconds > 0
+                && mediaPlayer != null
+                && isMediaPrepared
+                && isPlayingSafe();
+
+        autoCrossfadeTriggeredForCurrentTrack = false;
+        releaseFadingOutPlayer();
+
+        if (shouldCrossfade) {
+            fadingOutPlayer = mediaPlayer;
+            try {
+                fadingOutPlayer.setOnCompletionListener(null);
+                fadingOutPlayer.setOnErrorListener(new MediaPlayer.OnErrorListener() {
+                    @Override
+                    public boolean onError(MediaPlayer mp, int what, int extra) {
+                        releaseFadingOutPlayer();
+                        return true;
+                    }
+                });
+            } catch (IllegalStateException ignored) {
+            }
+            mediaPlayer = new MediaPlayer();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                mediaPlayer.setAudioAttributes(new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build());
+            } else {
+                mediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
+            }
+        } else if (mediaPlayer == null) {
             mediaPlayer = new MediaPlayer();
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 mediaPlayer.setAudioAttributes(new AudioAttributes.Builder()
@@ -1358,15 +1888,20 @@ public class MainActivity extends Activity {
         seekBarNp.setProgress(0);
         updateQueueCounterText();
         updateNowPlayingArtworkView(song.id);
+        audioVisualizer.setPlayingState(true, song.id, 0L);
 
         Uri trackUri = ContentUris.withAppendedId(
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, song.id);
 
+        final boolean fadeInActive = shouldCrossfade;
         try {
             mediaPlayer.setDataSource(getApplicationContext(), trackUri);
             mediaPlayer.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
                 @Override
                 public void onPrepared(MediaPlayer mp) {
+                    if (mp != mediaPlayer) {
+                        return;
+                    }
                     isMediaPrepared = true;
                     int duration = mp.getDuration();
                     if (duration > 0) {
@@ -1374,8 +1909,19 @@ public class MainActivity extends Activity {
                         seekBarNp.setMax(duration);
                         tvNpTotal.setText(formatDuration(duration));
                     }
+                    applyReverbToPlayer(mp);
+                    if (fadeInActive && fadingOutPlayer != null) {
+                        mp.setVolume(0f, 0f);
+                        crossfadeDurationMs = crossfadeSeconds * 1000L;
+                        crossfadeStartMs = SystemClock.uptimeMillis();
+                        uiHandler.removeCallbacks(crossfadeRunnable);
+                        uiHandler.post(crossfadeRunnable);
+                    } else {
+                        mp.setVolume(1.0f, 1.0f);
+                    }
                     mp.start();
                     updatePlayPauseIcon(true);
+                    audioVisualizer.setPlayingState(true, song.id, 0L);
                     songAdapter.notifyDataSetChanged();
                     uiHandler.post(progressRunnable);
                 }
@@ -1383,18 +1929,23 @@ public class MainActivity extends Activity {
             mediaPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
                 @Override
                 public void onCompletion(MediaPlayer mp) {
-                    handleTrackCompletion();
+                    if (mp == mediaPlayer) {
+                        handleTrackCompletion();
+                    }
                 }
             });
             mediaPlayer.setOnErrorListener(new MediaPlayer.OnErrorListener() {
                 @Override
                 public boolean onError(MediaPlayer mp, int what, int extra) {
-                    isMediaPrepared = false;
-                    updatePlayPauseIcon(false);
-                    songAdapter.notifyDataSetChanged();
-                    Toast.makeText(MainActivity.this,
-                            "Unable to play: " + song.title,
-                            Toast.LENGTH_SHORT).show();
+                    if (mp == mediaPlayer) {
+                        isMediaPrepared = false;
+                        updatePlayPauseIcon(false);
+                        audioVisualizer.setPlayingState(false, currentSongId, 0L);
+                        songAdapter.notifyDataSetChanged();
+                        Toast.makeText(MainActivity.this,
+                                "Unable to play: " + song.title,
+                                Toast.LENGTH_SHORT).show();
+                    }
                     return true;
                 }
             });
@@ -1402,6 +1953,7 @@ public class MainActivity extends Activity {
         } catch (IOException | IllegalArgumentException | SecurityException e) {
             isMediaPrepared = false;
             updatePlayPauseIcon(false);
+            audioVisualizer.setPlayingState(false, currentSongId, 0L);
             Toast.makeText(this, "Error opening audio file: " + song.title, Toast.LENGTH_SHORT).show();
         }
     }
@@ -1463,18 +2015,23 @@ public class MainActivity extends Activity {
     }
 
     private void pausePlayback() {
+        releaseFadingOutPlayer();
         if (mediaPlayer != null && isMediaPrepared && isPlayingSafe()) {
             mediaPlayer.pause();
             uiHandler.removeCallbacks(progressRunnable);
             updatePlayPauseIcon(false);
+            audioVisualizer.setPlayingState(false, currentSongId, 0L);
             songAdapter.notifyDataSetChanged();
         }
     }
 
     private void resumePlayback() {
         if (mediaPlayer != null && isMediaPrepared && !isPlayingSafe()) {
+            mediaPlayer.setVolume(1.0f, 1.0f);
+            applyReverbToPlayer(mediaPlayer);
             mediaPlayer.start();
             updatePlayPauseIcon(true);
+            audioVisualizer.setPlayingState(true, currentSongId, mediaPlayer.getCurrentPosition());
             songAdapter.notifyDataSetChanged();
             uiHandler.removeCallbacks(progressRunnable);
             uiHandler.post(progressRunnable);
@@ -1541,14 +2098,35 @@ public class MainActivity extends Activity {
     }
 
     private void updateSeekProgress() {
-        if (mediaPlayer == null || !isMediaPrepared || isUserSeeking) {
+        if (mediaPlayer == null || !isMediaPrepared) {
             return;
         }
         try {
             int pos = mediaPlayer.getCurrentPosition();
-            miniProgressBar.setProgress(pos);
-            seekBarNp.setProgress(pos);
-            tvNpElapsed.setText(formatDuration(pos));
+            int dur = mediaPlayer.getDuration();
+            if (!isUserSeeking) {
+                miniProgressBar.setProgress(pos);
+                seekBarNp.setProgress(pos);
+                tvNpElapsed.setText(formatDuration(pos));
+            }
+            audioVisualizer.setPlayingState(isPlayingSafe(), currentSongId, pos);
+
+            if (crossfadeSeconds > 0
+                    && !autoCrossfadeTriggeredForCurrentTrack
+                    && repeatMode != REPEAT_ONE
+                    && !playbackQueue.isEmpty()
+                    && dur > crossfadeSeconds * 1000 + 1500) {
+                long remainingMs = (long) dur - (long) pos;
+                if (remainingMs > 200L && remainingMs <= crossfadeSeconds * 1000L) {
+                    boolean hasNext = (shuffleEnabled && playbackQueue.size() > 1)
+                            || currentPlaylistIndex < playbackQueue.size() - 1
+                            || repeatMode == REPEAT_ALL;
+                    if (hasNext) {
+                        autoCrossfadeTriggeredForCurrentTrack = true;
+                        playNext();
+                    }
+                }
+            }
         } catch (IllegalStateException ignored) {
         }
     }
@@ -1607,9 +2185,30 @@ public class MainActivity extends Activity {
         return String.format(Locale.US, "%d:%02d", minutes, seconds);
     }
 
+    private void updateShakeListenerRegistration() {
+        if (sensorManager == null || accelerometer == null) {
+            return;
+        }
+        if (shakeToSkipEnabled && !isShakeListenerRegistered && !isFinishing() && !isDestroyed()) {
+            sensorManager.registerListener(shakeSensorListener, accelerometer, SensorManager.SENSOR_DELAY_UI);
+            isShakeListenerRegistered = true;
+        } else if (!shakeToSkipEnabled && isShakeListenerRegistered) {
+            sensorManager.unregisterListener(shakeSensorListener);
+            isShakeListenerRegistered = false;
+        }
+    }
+
+    private void unregisterShakeListener() {
+        if (sensorManager != null && isShakeListenerRegistered) {
+            sensorManager.unregisterListener(shakeSensorListener);
+            isShakeListenerRegistered = false;
+        }
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
+        updateShakeListenerRegistration();
         if (hasAudioPermission() && allSongs.isEmpty()) {
             scanLocalAudioFiles();
         }
@@ -1617,6 +2216,12 @@ public class MainActivity extends Activity {
             uiHandler.removeCallbacks(progressRunnable);
             uiHandler.post(progressRunnable);
         }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        unregisterShakeListener();
     }
 
     @Override
@@ -1628,6 +2233,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        unregisterShakeListener();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
                 && isBackCallbackRegistered
                 && backInvokedCallback != null) {
@@ -1640,6 +2246,14 @@ public class MainActivity extends Activity {
         artExecutor.shutdownNow();
         artThumbCache.evictAll();
         abandonAudioFocus();
+        releaseFadingOutPlayer();
+        if (presetReverb != null) {
+            try {
+                presetReverb.release();
+            } catch (Exception ignored) {
+            }
+            presetReverb = null;
+        }
         if (mediaPlayer != null) {
             try {
                 if (isMediaPrepared && mediaPlayer.isPlaying()) {

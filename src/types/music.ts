@@ -6,10 +6,24 @@ export type RepeatMode = 'off' | 'all' | 'one';
 
 export type AppThemeId = 'holo' | 'aero' | 'skeuomorphic';
 
+export type VisualizerMode =
+  | 'water_reflex'
+  | 'led_bars'
+  | 'octave_bars'
+  | 'mirror_wave'
+  | 'radial'
+  | 'line_area';
+
+export type ReverbPreset = 'none' | 'small_room' | 'medium_hall' | 'large_hall' | 'plate';
+
 export interface AppSettings {
   theme: AppThemeId;
   defaultSort: SortMode;
   showListArtwork: boolean;
+  shakeToSkip: boolean;
+  crossfadeSeconds: number;
+  reverbPreset: ReverbPreset;
+  visualizerMode: VisualizerMode;
 }
 
 export type EqPresetName =

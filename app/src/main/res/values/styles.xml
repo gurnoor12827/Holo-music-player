@@ -21,7 +21,7 @@
     <string name="holo_empty_message">Grant audio storage access or place MP3, M4A, WAV, or FLAC music files on your device.</string>
     <string name="holo_btn_scan">SCAN LOCAL AUDIO</string>
     <string name="holo_idle_title">Select a track to play</string>
-    <string name="holo_idle_artist">KitKat Holo Local Music Player</string>
+    <string name="holo_idle_artist">Holo Player v0.3-alpha</string>
     <string name="holo_zero_time">0:00</string>
     <string name="holo_cd_previous">Previous track</string>
     <string name="holo_cd_play_pause">Play or pause</string>
@@ -41,6 +41,14 @@
     <string name="settings_show_thumbnails">Show track artwork in list</string>
     <string name="settings_sort_order">Default Sort Order</string>
     <string name="settings_rescan_audio">Rescan Local Audio</string>
+    <string name="np_cd_display_settings">Display and visualizer settings</string>
+    <string name="settings_section_fx">AUDIO EFFECTS AND GESTURES</string>
+    <string name="settings_shake_to_skip">Shake phone to skip track</string>
+    <string name="settings_crossfade_prefix">Crossfade: </string>
+    <string name="settings_reverb_prefix">Reverb: </string>
+    <string name="settings_visualizer_prefix">Visualizer: </string>
+    <string name="settings_section_about">ABOUT</string>
+    <string name="settings_version_label">Holo Player  ·  v0.3-alpha</string>
 
     <!-- Base application theme inheriting directly from @android:style/Theme.Holo -->
     <style name="AppTheme" parent="@android:style/Theme.Holo">
@@ -65,7 +73,7 @@
         <item name="android:backgroundSplit">@color/holo_actionbar_bg</item>
         <item name="android:titleTextStyle">@style/HoloActionBarTitle</item>
         <item name="android:subtitleTextStyle">@style/HoloActionBarSubtitle</item>
-        <item name="android:displayOptions">showHome|showTitle</item>
+        <item name="android:displayOptions">showTitle</item>
     </style>
 
     <style name="HoloActionBarTitle" parent="@android:style/TextAppearance.Holo.Widget.ActionBar.Title">

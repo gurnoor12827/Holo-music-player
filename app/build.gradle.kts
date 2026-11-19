@@ -10,8 +10,8 @@ android {
     applicationId = "com.example"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    versionCode = 3
+    versionName = "v0.3-alpha"
   }
 
   // Do not remove or modify these signingConfigs. They are necessary for building, installing,

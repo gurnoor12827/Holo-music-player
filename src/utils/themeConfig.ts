@@ -34,6 +34,10 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   theme: 'holo',
   defaultSort: 'title',
   showListArtwork: true,
+  shakeToSkip: false,
+  crossfadeSeconds: 0,
+  reverbPreset: 'none',
+  visualizerMode: 'water_reflex',
 };
 
 export function loadAppSettings(): AppSettings {
@@ -50,10 +54,35 @@ export function loadAppSettings(): AppSettings {
       parsed.defaultSort === 'added'
         ? parsed.defaultSort
         : 'title';
+    const crossfadeSeconds =
+      parsed.crossfadeSeconds === 2 ||
+      parsed.crossfadeSeconds === 4 ||
+      parsed.crossfadeSeconds === 6
+        ? parsed.crossfadeSeconds
+        : 0;
+    const reverbPreset =
+      parsed.reverbPreset === 'small_room' ||
+      parsed.reverbPreset === 'medium_hall' ||
+      parsed.reverbPreset === 'large_hall' ||
+      parsed.reverbPreset === 'plate'
+        ? parsed.reverbPreset
+        : 'none';
+    const visualizerMode =
+      parsed.visualizerMode === 'led_bars' ||
+      parsed.visualizerMode === 'octave_bars' ||
+      parsed.visualizerMode === 'mirror_wave' ||
+      parsed.visualizerMode === 'radial' ||
+      parsed.visualizerMode === 'line_area'
+        ? parsed.visualizerMode
+        : 'water_reflex';
     return {
       theme,
       defaultSort,
       showListArtwork: parsed.showListArtwork !== false,
+      shakeToSkip: parsed.shakeToSkip === true,
+      crossfadeSeconds,
+      reverbPreset,
+      visualizerMode,
     };
   } catch {
     return { ...DEFAULT_APP_SETTINGS };

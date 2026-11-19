@@ -98,11 +98,58 @@ export default function App() {
   const [equalizer, setEqualizer] = useState<EqualizerState>(() => loadEqualizerState());
   const [showEqualizer, setShowEqualizer] = useState(false);
 
-  const player = useHoloAudioPlayer({ equalizer });
+  const player = useHoloAudioPlayer({
+    equalizer,
+    crossfadeSeconds: settings.crossfadeSeconds,
+    reverbPreset: settings.reverbPreset,
+  });
 
   useEffect(() => {
     applyDocumentTheme(settings.theme);
   }, [settings.theme]);
+
+  // Shake-to-skip via DeviceMotion API when enabled in Settings
+  useEffect(() => {
+    if (!settings.shakeToSkip || typeof window === 'undefined') return;
+    let lastSkipAt = 0;
+    let lastX = 0;
+    let lastY = 0;
+    let lastZ = 0;
+    let hasSample = false;
+
+    const handleMotion = (event: DeviceMotionEvent) => {
+      const acc = event.accelerationIncludingGravity || event.acceleration;
+      if (!acc) return;
+      const x = acc.x ?? 0;
+      const y = acc.y ?? 0;
+      const z = acc.z ?? 0;
+      if (!hasSample) {
+        lastX = x;
+        lastY = y;
+        lastZ = z;
+        hasSample = true;
+        return;
+      }
+      const dx = x - lastX;
+      const dy = y - lastY;
+      const dz = z - lastZ;
+      lastX = x;
+      lastY = y;
+      lastZ = z;
+
+      const delta = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const now = Date.now();
+      if (delta > 18 && now - lastSkipAt > 1400) {
+        lastSkipAt = now;
+        player.playNext();
+      }
+    };
+
+    window.addEventListener('devicemotion', handleMotion);
+    return () => {
+      window.removeEventListener('devicemotion', handleMotion);
+    };
+  }, [settings.shakeToSkip, player.playNext]);
 
   // Load persisted library and playlists from IndexedDB on launch
   useEffect(() => {
@@ -693,17 +740,14 @@ export default function App() {
             </button>
           </div>
         ) : (
-          <div className="flex min-w-0 items-center gap-2.5">
-            <HoloMusicNoteIcon className="h-5 w-5 shrink-0 text-[var(--accent)]" />
-            <div className="min-w-0">
-              <h1 className="truncate text-base font-semibold tracking-tight text-[var(--accent)]">
-                Music Player
-              </h1>
-              <p className="truncate font-mono text-[11px] tabular-nums text-[var(--text-secondary)]">
-                {tracks.length} {tracks.length === 1 ? 'track' : 'tracks'} · {playlists.length}{' '}
-                {playlists.length === 1 ? 'playlist' : 'playlists'}
-              </p>
-            </div>
+          <div className="min-w-0">
+            <h1 className="truncate text-base font-semibold tracking-tight text-[var(--accent)]">
+              Holo Player
+            </h1>
+            <p className="truncate font-mono text-[11px] tabular-nums text-[var(--text-secondary)]">
+              {tracks.length} {tracks.length === 1 ? 'track' : 'tracks'} · {playlists.length}{' '}
+              {playlists.length === 1 ? 'playlist' : 'playlists'}
+            </p>
           </div>
         )}
 
@@ -1366,6 +1410,8 @@ export default function App() {
       {/* Full-Screen Now Playing View */}
       <NowPlayingView
         isOpen={showNowPlaying}
+        theme={settings.theme}
+        visualizerMode={settings.visualizerMode}
         track={player.currentTrack}
         isPlaying={player.isPlaying}
         currentTime={player.currentTime}
@@ -1376,6 +1422,10 @@ export default function App() {
           player.currentTrack ? brokenArtIds.has(player.currentTrack.id) : false
         }
         queuePositionLabel={queuePositionLabel}
+        getAudioMotionTarget={player.getAudioMotionTarget}
+        onChangeVisualizerMode={(mode) =>
+          handleSettingsChange({ ...settings, visualizerMode: mode })
+        }
         onCollapse={() => setShowNowPlaying(false)}
         onTogglePlayPause={() => player.togglePlayPause(activePlaybackFallbackList)}
         onPrevious={player.playPrevious}

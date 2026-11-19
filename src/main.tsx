@@ -16,7 +16,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('Holo Music ErrorBoundary:', error, info);
+    console.error('Holo Player ErrorBoundary:', error, info);
   }
 
   render() {
@@ -28,7 +28,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
         >
           <div className="holo-dialog-surface max-w-md p-6">
             <h1 className="border-b-2 border-[#33B5E5] pb-2 text-lg font-semibold text-[#33B5E5]">
-              Holo Music Stopped
+              Holo Player Stopped
             </h1>
             <p className="mt-3 text-sm text-white/80">{this.state.message}</p>
             <button

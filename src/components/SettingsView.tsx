@@ -1,6 +1,13 @@
 import { useState } from 'react';
-import type { AppSettings, AppThemeId, SortMode } from '../types/music';
+import type {
+  AppSettings,
+  AppThemeId,
+  ReverbPreset,
+  SortMode,
+  VisualizerMode,
+} from '../types/music';
 import { THEME_OPTIONS } from '../utils/themeConfig';
+import { VISUALIZER_MODES } from './AudioVisualizer';
 import { HoloBackIcon } from './HoloIcons';
 
 interface SettingsViewProps {
@@ -22,6 +29,21 @@ const SORT_MODES: { value: SortMode; label: string }[] = [
   { value: 'album', label: 'Album (A - Z)' },
   { value: 'duration', label: 'Duration (Longest)' },
   { value: 'added', label: 'Recently Added' },
+];
+
+const CROSSFADE_OPTIONS: { value: number; label: string }[] = [
+  { value: 0, label: 'Off' },
+  { value: 2, label: '2 sec' },
+  { value: 4, label: '4 sec' },
+  { value: 6, label: '6 sec' },
+];
+
+const REVERB_PRESETS: { value: ReverbPreset; label: string }[] = [
+  { value: 'none', label: 'Off' },
+  { value: 'small_room', label: 'Small Room' },
+  { value: 'medium_hall', label: 'Medium Hall' },
+  { value: 'large_hall', label: 'Large Hall' },
+  { value: 'plate', label: 'Studio Plate' },
 ];
 
 export function SettingsView({
@@ -241,6 +263,173 @@ export function SettingsView({
             </div>
             <span className="text-xs font-semibold text-[var(--accent)]">Open</span>
           </button>
+
+          {/* Audio Effects & Gestures */}
+          <div className="holo-subheader-surface mt-2 px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--accent)]">
+            Audio Effects and Gestures
+          </div>
+
+          <div className="holo-list-row flex min-h-[56px] items-center justify-between gap-4 px-4 py-3">
+            <div>
+              <div className="text-sm font-medium text-[var(--text-primary)]">Shake to Skip</div>
+              <div className="text-xs text-[var(--text-secondary)]">
+                Shake device to skip to the next track
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={settings.shakeToSkip}
+              onClick={async () => {
+                const nextVal = !settings.shakeToSkip;
+                if (nextVal && typeof DeviceMotionEvent !== 'undefined') {
+                  const reqPerm = (
+                    DeviceMotionEvent as unknown as {
+                      requestPermission?: () => Promise<'granted' | 'denied'>;
+                    }
+                  ).requestPermission;
+                  if (typeof reqPerm === 'function') {
+                    try {
+                      const res = await reqPerm();
+                      if (res !== 'granted') return;
+                    } catch {
+                      return;
+                    }
+                  }
+                }
+                onChangeSettings({
+                  ...settings,
+                  shakeToSkip: nextVal,
+                });
+              }}
+              className="flex min-h-[40px] items-center border p-[2px]"
+              style={{
+                backgroundColor: 'var(--rocker-bg)',
+                borderColor: 'var(--divider-strong)',
+                borderRadius: 'var(--control-radius)',
+              }}
+            >
+              <span
+                className="px-2.5 py-1 text-[11px] font-bold"
+                style={
+                  !settings.shakeToSkip
+                    ? {
+                        backgroundColor: 'var(--rocker-off-bg)',
+                        color: 'var(--rocker-off-text)',
+                      }
+                    : { color: 'var(--text-dim)' }
+                }
+              >
+                OFF
+              </span>
+              <span
+                className="px-2.5 py-1 text-[11px] font-bold"
+                style={
+                  settings.shakeToSkip
+                    ? {
+                        backgroundColor: 'var(--accent)',
+                        color: 'var(--rocker-on-text)',
+                      }
+                    : { color: 'var(--text-dim)' }
+                }
+              >
+                ON
+              </span>
+            </button>
+          </div>
+
+          <div className="holo-list-row flex min-h-[56px] items-center justify-between gap-4 px-4 py-3">
+            <div>
+              <label
+                htmlFor="settings-crossfade"
+                className="block text-sm font-medium text-[var(--text-primary)]"
+              >
+                Crossfade
+              </label>
+              <span className="text-xs text-[var(--text-secondary)]">
+                Overlap volume ramp between tracks
+              </span>
+            </div>
+            <select
+              id="settings-crossfade"
+              value={settings.crossfadeSeconds}
+              onChange={(e) =>
+                onChangeSettings({
+                  ...settings,
+                  crossfadeSeconds: Number(e.target.value),
+                })
+              }
+              className="holo-btn min-h-[40px] px-3 py-1.5 text-xs font-semibold text-[var(--accent)] focus:outline-none"
+            >
+              {CROSSFADE_OPTIONS.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="holo-list-row flex min-h-[56px] items-center justify-between gap-4 px-4 py-3">
+            <div>
+              <label
+                htmlFor="settings-reverb"
+                className="block text-sm font-medium text-[var(--text-primary)]"
+              >
+                Reverb Preset
+              </label>
+              <span className="text-xs text-[var(--text-secondary)]">
+                Acoustic space convolution processing
+              </span>
+            </div>
+            <select
+              id="settings-reverb"
+              value={settings.reverbPreset}
+              onChange={(e) =>
+                onChangeSettings({
+                  ...settings,
+                  reverbPreset: e.target.value as ReverbPreset,
+                })
+              }
+              className="holo-btn min-h-[40px] px-3 py-1.5 text-xs font-semibold text-[var(--accent)] focus:outline-none"
+            >
+              {REVERB_PRESETS.map((r) => (
+                <option key={r.value} value={r.value}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="holo-list-row flex min-h-[56px] items-center justify-between gap-4 px-4 py-3">
+            <div>
+              <label
+                htmlFor="settings-visualizer"
+                className="block text-sm font-medium text-[var(--text-primary)]"
+              >
+                Visualizer Mode
+              </label>
+              <span className="text-xs text-[var(--text-secondary)]">
+                Theme-matched display in Now Playing
+              </span>
+            </div>
+            <select
+              id="settings-visualizer"
+              value={settings.visualizerMode}
+              onChange={(e) =>
+                onChangeSettings({
+                  ...settings,
+                  visualizerMode: e.target.value as VisualizerMode,
+                })
+              }
+              className="holo-btn min-h-[40px] px-3 py-1.5 text-xs font-semibold text-[var(--accent)] focus:outline-none"
+            >
+              {VISUALIZER_MODES.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
           {/* Storage Actions */}
           <div className="holo-subheader-surface mt-2 px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--accent)]">

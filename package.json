@@ -1,7 +1,7 @@
 {
-  "name": "holo-music-player",
+  "name": "holo-player",
   "private": true,
-  "version": "1.0.0",
+  "version": "0.3.0-alpha",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
@@ -10,6 +10,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "audiomotion-analyzer": "^4.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
