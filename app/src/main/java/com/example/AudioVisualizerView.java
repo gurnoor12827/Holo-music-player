@@ -31,7 +31,7 @@ public class AudioVisualizerView extends View {
     private static final int BAND_COUNT = 28;
 
     private ThemeConfig theme = ThemeConfig.HOLO;
-    private int mode = MODE_WATER_REFLEX;
+    private int mode = MODE_LED_BARS;
     private boolean playing = false;
     private long trackSeed = 1L;
     private long playbackPositionMs = 0L;

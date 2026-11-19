@@ -12,8 +12,8 @@ interface AudioVisualizerProps {
 }
 
 export const VISUALIZER_MODES: { id: VisualizerMode; label: string }[] = [
-  { id: 'water_reflex', label: 'Water Reflex' },
   { id: 'led_bars', label: 'LED Bars' },
+  { id: 'water_reflex', label: 'Water Reflex' },
   { id: 'octave_bars', label: 'Octave' },
   { id: 'mirror_wave', label: 'Mirror' },
   { id: 'radial', label: 'Radial' },
@@ -31,9 +31,9 @@ function getModeOptions(mode: VisualizerMode): Partial<Options> {
         mirror: 0,
         reflexRatio: 0,
         reflexAlpha: 0,
-        fillAlpha: 0.9,
+        fillAlpha: 0.92,
         lineWidth: 0,
-        barSpace: 0.25,
+        barSpace: 0.22,
       };
     case 'octave_bars':
       return {

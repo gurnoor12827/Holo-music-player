@@ -363,6 +363,15 @@
   box-shadow: var(--btn-shadow);
 }
 
+.theme-album-sleeve {
+  background-color: var(--surface-artwork);
+  border: 2px solid var(--artwork-border);
+  border-radius: var(--card-radius);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 10px 24px rgba(0, 0, 0, 0.52);
+}
+
 .holo-btn {
   background-image: var(--btn-bg);
   border: 1px solid var(--btn-border);
@@ -427,6 +436,14 @@
 .holo-list-row {
   border-bottom: 1px solid var(--divider);
   contain: layout style;
+  touch-action: manipulation;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.holo-list-row button {
+  touch-action: manipulation;
 }
 
 .holo-list-row:hover {

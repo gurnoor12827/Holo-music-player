@@ -17,6 +17,8 @@ import {
   HoloVinylIcon,
 } from './HoloIcons';
 
+type NowPlayingStageMode = 'combined' | 'visualizer' | 'artwork';
+
 interface NowPlayingViewProps {
   isOpen: boolean;
   theme: AppThemeId;
@@ -71,7 +73,7 @@ export function NowPlayingView({
   onMarkArtworkBroken,
   onOpenEqualizer,
 }: NowPlayingViewProps) {
-  const [showVisualizer, setShowVisualizer] = useState(false);
+  const [stageMode, setStageMode] = useState<NowPlayingStageMode>('combined');
   const [showDisplaySettings, setShowDisplaySettings] = useState(false);
 
   if (!isOpen) return null;
@@ -81,12 +83,15 @@ export function NowPlayingView({
   const seekPct = seekMax > 0 ? Math.min(100, (currentTime / seekMax) * 100) : 0;
   const hasValidArt = Boolean(track?.artworkDataUrl) && !isArtworkBroken;
 
+  const showArtwork = stageMode === 'combined' || stageMode === 'artwork';
+  const showVisualizer = stageMode === 'combined' || stageMode === 'visualizer';
+
   return (
     <section
       aria-label="Now Playing"
-      className="holo-bg-gradient fixed inset-0 z-40 flex flex-col overflow-hidden"
+      className="holo-bg-gradient fixed inset-0 z-40 flex h-full max-h-screen w-full flex-col overflow-hidden"
     >
-      {/* Top Bar */}
+      {/* Edge-to-Edge Top Bar */}
       <header className="holo-actionbar-surface flex h-13 shrink-0 items-center justify-between px-2 sm:px-4">
         <button
           type="button"
@@ -97,9 +102,9 @@ export function NowPlayingView({
           <HoloCollapseIcon className="h-6 w-6" />
         </button>
 
-        <div className="min-w-0 text-center">
+        <div className="min-w-0 flex-1 px-2 text-center">
           <h2 className="truncate text-sm font-semibold tracking-wide text-[var(--text-primary)]">
-            Now Playing
+            {track ? track.title : 'Now Playing'}
           </h2>
           {queuePositionLabel && (
             <div className="font-mono text-[11px] tabular-nums text-[var(--text-dim)]">
@@ -132,19 +137,11 @@ export function NowPlayingView({
         </div>
       </header>
 
-      {/* Main Content */}
-      <div className="holo-scroll flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-4">
-        <div className="flex w-full max-w-md flex-col items-center">
-          {/* Stage Area: Artwork OR audioMotion-analyzer Visualizer */}
-          {showVisualizer ? (
-            <div className="theme-artwork-box aspect-square w-full max-w-[300px] overflow-hidden sm:max-w-[336px]">
-              <AudioVisualizer
-                theme={theme}
-                mode={visualizerMode}
-                getAudioMotionTarget={getAudioMotionTarget}
-              />
-            </div>
-          ) : (
+      {/* Main Edge-to-Edge Vertical Stage */}
+      <div className="flex min-h-0 flex-1 flex-col items-center overflow-hidden pt-3">
+        {/* Centered Album Art Container */}
+        {showArtwork && (
+          <div className="flex shrink-0 flex-col items-center px-6">
             <button
               type="button"
               disabled={!track}
@@ -152,7 +149,11 @@ export function NowPlayingView({
                 if (track) onOpenArtworkEditor(track);
               }}
               aria-label={track ? `Edit cover art for ${track.title}` : 'No album art'}
-              className="theme-artwork-box group relative flex aspect-square w-full max-w-[300px] items-center justify-center overflow-hidden sm:max-w-[336px] disabled:cursor-default"
+              className={`theme-album-sleeve group relative flex aspect-square items-center justify-center overflow-hidden disabled:cursor-default ${
+                stageMode === 'artwork'
+                  ? 'h-[36vh] min-h-[190px] max-h-[300px]'
+                  : 'h-[18vh] min-h-[112px] max-h-[168px]'
+              }`}
             >
               {hasValidArt && track?.artworkDataUrl ? (
                 <img
@@ -162,140 +163,152 @@ export function NowPlayingView({
                   className="h-full w-full object-cover"
                 />
               ) : (
-                <div className="flex flex-col items-center justify-center gap-2 text-[var(--accent)]">
-                  <HoloVinylIcon className="h-28 w-28" />
+                <div className="flex flex-col items-center justify-center text-[var(--accent)]">
+                  <HoloVinylIcon className={stageMode === 'artwork' ? 'h-24 w-24' : 'h-14 w-14'} />
                 </div>
               )}
             </button>
-          )}
-
-          {/* Track Metadata */}
-          <div className="mt-5 w-full text-center">
-            <div className="truncate text-lg font-semibold text-[var(--text-primary)]">
-              {track ? track.title : 'No track selected'}
-            </div>
-            <div className="mt-1 truncate text-sm text-[var(--accent)]">
-              {track
-                ? `${track.artist} · ${track.album}`
-                : 'Select a track from your library'}
-            </div>
           </div>
+        )}
 
-          {/* Interactive Seekbar with Tabular Timestamps */}
-          <div className="mt-6 w-full">
-            <input
-              type="range"
-              aria-label="Now Playing Seekbar"
-              min={0}
-              max={seekMax}
-              step={0.5}
-              disabled={!track}
-              value={Math.min(currentTime, seekMax)}
-              onChange={(e) => onSeek(Number(e.target.value))}
-              className="holo-seekbar disabled:opacity-40"
-              style={
-                {
-                  '--seek-pct': `${seekPct}%`,
-                  '--seek-color': 'var(--accent)',
-                } as CSSProperties
-              }
+        {/* Song Title and Artist Name */}
+        <div className="mt-2.5 w-full shrink-0 px-5 text-center">
+          <div className="truncate text-base font-semibold text-[var(--text-primary)] sm:text-lg">
+            {track ? track.title : 'No track selected'}
+          </div>
+          <div className="mt-0.5 truncate text-xs font-medium text-[var(--accent)] sm:text-sm">
+            {track
+              ? `${track.artist}${track.album ? ` · ${track.album}` : ''}`
+              : 'Select a track from your library'}
+          </div>
+        </div>
+
+        {/* Expanded Edge-to-Edge Visualizer Canvas */}
+        {showVisualizer ? (
+          <div className="mt-2.5 min-h-[180px] w-full flex-1 border-y border-[var(--divider)] bg-[var(--surface-artwork)]">
+            <AudioVisualizer
+              theme={theme}
+              mode={visualizerMode}
+              getAudioMotionTarget={getAudioMotionTarget}
             />
-            <div className="mt-0.5 flex items-center justify-between font-mono text-xs tabular-nums">
-              <span className="text-[var(--accent)]">{formatTime(currentTime)}</span>
-              <span className="text-[var(--text-secondary)]">
-                {formatTime(effectiveDuration)}
-              </span>
-            </div>
           </div>
+        ) : (
+          <div className="flex-1" />
+        )}
+      </div>
 
-          {/* Transport Controls */}
-          <div className="mt-6 flex w-full items-center justify-between gap-2">
-            <button
-              type="button"
-              aria-label="Toggle Shuffle"
-              aria-pressed={shuffle}
-              title={shuffle ? 'Shuffle On' : 'Shuffle Off'}
-              onClick={onToggleShuffle}
-              className={`flex min-h-[44px] min-w-[44px] items-center justify-center border ${
-                shuffle
-                  ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
-                  : 'border-transparent text-[var(--text-dim)] hover:text-[var(--text-primary)]'
-              }`}
-              style={{ borderRadius: 'var(--control-radius)' }}
-            >
-              <HoloShuffleIcon className="h-5 w-5" />
-            </button>
-
-            <button
-              type="button"
-              aria-label="Previous Track"
-              onClick={onPrevious}
-              className="holo-btn flex h-12 w-16 items-center justify-center"
-            >
-              <HoloPrevIcon className="h-6 w-6" />
-            </button>
-
-            <button
-              type="button"
-              aria-label={isPlaying ? 'Pause' : 'Play'}
-              onClick={onTogglePlayPause}
-              className="holo-btn-primary flex h-14 w-20 items-center justify-center"
-            >
-              {isPlaying ? (
-                <HoloPauseIcon className="h-7 w-7" />
-              ) : (
-                <HoloPlayIcon className="h-7 w-7" />
-              )}
-            </button>
-
-            <button
-              type="button"
-              aria-label="Next Track"
-              onClick={onNext}
-              className="holo-btn flex h-12 w-16 items-center justify-center"
-            >
-              <HoloNextIcon className="h-6 w-6" />
-            </button>
-
-            <button
-              type="button"
-              aria-label="Cycle Repeat Mode"
-              title={`Repeat: ${repeat}`}
-              onClick={onCycleRepeat}
-              className={`relative flex min-h-[44px] min-w-[44px] items-center justify-center border ${
-                repeat !== 'off'
-                  ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
-                  : 'border-transparent text-[var(--text-dim)] hover:text-[var(--text-primary)]'
-              }`}
-              style={{ borderRadius: 'var(--control-radius)' }}
-            >
-              <HoloRepeatIcon className="h-5 w-5" />
-              {repeat === 'one' && (
-                <span className="absolute bottom-1 right-1 text-[9px] font-bold leading-none text-[var(--accent)]">
-                  1
-                </span>
-              )}
-            </button>
-          </div>
+      {/* Full-Width Interactive Seekbar + Timestamps */}
+      <div className="w-full shrink-0 px-4 pt-2 pb-1">
+        <input
+          type="range"
+          aria-label="Now Playing Seekbar"
+          min={0}
+          max={seekMax}
+          step={0.5}
+          disabled={!track}
+          value={Math.min(currentTime, seekMax)}
+          onChange={(e) => onSeek(Number(e.target.value))}
+          className="holo-seekbar disabled:opacity-40"
+          style={
+            {
+              '--seek-pct': `${seekPct}%`,
+              '--seek-color': 'var(--accent)',
+            } as CSSProperties
+          }
+        />
+        <div className="-mt-1 flex items-center justify-between font-mono text-xs tabular-nums">
+          <span className="text-[var(--accent)]">{formatTime(currentTime)}</span>
+          <span className="text-[var(--text-secondary)]">
+            {formatTime(effectiveDuration)}
+          </span>
         </div>
       </div>
 
-      {/* Bottom-Right Corner Settings Icon (Stage Mode & Visualizer Presets) */}
-      <div className="flex shrink-0 items-center justify-end px-3 pb-3 pt-1">
-        <button
-          type="button"
-          onClick={() => setShowDisplaySettings(true)}
-          aria-label="Now Playing Display and Visualizer Settings"
-          title="Display & Visualizer"
-          className={`holo-btn flex h-10 w-10 items-center justify-center ${
-            showVisualizer ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'
-          }`}
-        >
-          <HoloSettingsIcon className="h-5 w-5" />
-        </button>
-      </div>
+      {/* Edge-to-Edge Bottom Transport Controls + Corner Settings Icon */}
+      <footer className="holo-dock-surface shrink-0">
+        <div className="flex h-[74px] w-full items-center justify-between px-2 sm:px-4">
+          <button
+            type="button"
+            aria-label="Toggle Shuffle"
+            aria-pressed={shuffle}
+            title={shuffle ? 'Shuffle On' : 'Shuffle Off'}
+            onClick={onToggleShuffle}
+            className={`flex min-h-[44px] min-w-[42px] items-center justify-center border ${
+              shuffle
+                ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+                : 'border-transparent text-[var(--text-dim)] hover:text-[var(--text-primary)]'
+            }`}
+            style={{ borderRadius: 'var(--control-radius)' }}
+          >
+            <HoloShuffleIcon className="h-5 w-5" />
+          </button>
 
-      {/* Hidden Display & Visualizer Settings Popover Dialog */}
+          <button
+            type="button"
+            aria-label="Previous Track"
+            onClick={onPrevious}
+            className="holo-btn flex h-11 w-14 items-center justify-center sm:w-16"
+          >
+            <HoloPrevIcon className="h-6 w-6" />
+          </button>
+
+          <button
+            type="button"
+            aria-label={isPlaying ? 'Pause' : 'Play'}
+            onClick={onTogglePlayPause}
+            className="holo-btn-primary flex h-13 w-18 items-center justify-center sm:h-14 sm:w-20"
+          >
+            {isPlaying ? (
+              <HoloPauseIcon className="h-7 w-7" />
+            ) : (
+              <HoloPlayIcon className="h-7 w-7" />
+            )}
+          </button>
+
+          <button
+            type="button"
+            aria-label="Next Track"
+            onClick={onNext}
+            className="holo-btn flex h-11 w-14 items-center justify-center sm:w-16"
+          >
+            <HoloNextIcon className="h-6 w-6" />
+          </button>
+
+          <button
+            type="button"
+            aria-label="Cycle Repeat Mode"
+            title={`Repeat: ${repeat}`}
+            onClick={onCycleRepeat}
+            className={`relative flex min-h-[44px] min-w-[42px] items-center justify-center border ${
+              repeat !== 'off'
+                ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+                : 'border-transparent text-[var(--text-dim)] hover:text-[var(--text-primary)]'
+            }`}
+            style={{ borderRadius: 'var(--control-radius)' }}
+          >
+            <HoloRepeatIcon className="h-5 w-5" />
+            {repeat === 'one' && (
+              <span className="absolute bottom-1 right-1 text-[9px] font-bold leading-none text-[var(--accent)]">
+                1
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowDisplaySettings(true)}
+            aria-label="Now Playing Display and Visualizer Settings"
+            title="Display & Visualizer"
+            className={`holo-btn flex h-10 w-10 shrink-0 items-center justify-center ${
+              showVisualizer ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'
+            }`}
+          >
+            <HoloSettingsIcon className="h-4 w-4" />
+          </button>
+        </div>
+      </footer>
+
+      {/* Display & Visualizer Settings Popover Dialog */}
       {showDisplaySettings && (
         <div
           className="fixed inset-0 z-50 flex items-end justify-end bg-black/55 p-3 sm:items-center sm:justify-center"
@@ -321,45 +334,44 @@ export function NowPlayingView({
 
             <div className="p-4">
               <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">
-                Stage Mode
+                Layout Mode
               </div>
               <div
-                className="grid grid-cols-2 border border-[var(--divider-strong)]"
+                className="grid grid-cols-3 border border-[var(--divider-strong)]"
                 style={{
                   backgroundColor: 'var(--rocker-bg)',
                   borderRadius: 'var(--control-radius)',
                 }}
               >
-                <button
-                  type="button"
-                  onClick={() => setShowVisualizer(false)}
-                  className="py-2 text-xs font-bold uppercase tracking-wider"
-                  style={
-                    !showVisualizer
-                      ? {
-                          backgroundColor: 'var(--accent)',
-                          color: 'var(--rocker-on-text)',
-                        }
-                      : { color: 'var(--text-secondary)' }
-                  }
-                >
-                  Artwork
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowVisualizer(true)}
-                  className="border-l border-[var(--divider-strong)] py-2 text-xs font-bold uppercase tracking-wider"
-                  style={
-                    showVisualizer
-                      ? {
-                          backgroundColor: 'var(--accent)',
-                          color: 'var(--rocker-on-text)',
-                        }
-                      : { color: 'var(--text-secondary)' }
-                  }
-                >
-                  Visualizer
-                </button>
+                {(
+                  [
+                    { id: 'combined', label: 'Split' },
+                    { id: 'visualizer', label: 'Visualizer' },
+                    { id: 'artwork', label: 'Artwork' },
+                  ] as { id: NowPlayingStageMode; label: string }[]
+                ).map((item, idx) => {
+                  const active = stageMode === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setStageMode(item.id)}
+                      className={`py-2 text-[11px] font-bold uppercase tracking-wider ${
+                        idx > 0 ? 'border-l border-[var(--divider-strong)]' : ''
+                      }`}
+                      style={
+                        active
+                          ? {
+                              backgroundColor: 'var(--accent)',
+                              color: 'var(--rocker-on-text)',
+                            }
+                          : { color: 'var(--text-secondary)' }
+                      }
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
               </div>
 
               <div className="mb-2 mt-4 text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">
@@ -374,7 +386,9 @@ export function NowPlayingView({
                       type="button"
                       onClick={() => {
                         onChangeVisualizerMode(m.id);
-                        setShowVisualizer(true);
+                        if (stageMode === 'artwork') {
+                          setStageMode('combined');
+                        }
                       }}
                       className={`py-2 text-xs font-semibold ${
                         active ? 'holo-btn-primary' : 'holo-btn text-[var(--text-secondary)]'

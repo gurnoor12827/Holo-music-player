@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useCallback, useRef, type MouseEvent, type TouchEvent } from 'react';
 import type { TrackRecord } from '../types/music';
 import { formatTime } from '../utils/audioMetadata';
 import {
@@ -14,13 +14,11 @@ import {
 interface TrackRowProps {
   track: TrackRecord;
   index: number;
-  tracks: TrackRecord[];
   playlistContextId?: string;
   isCurrent: boolean;
   isPlaying: boolean;
   showListArtwork: boolean;
   isArtBroken: boolean;
-  onPlayTrack: (tracks: TrackRecord[], index: number) => void;
   onEditArtwork: (track: TrackRecord, isCorrupted: boolean) => void;
   onAddToPlaylist: (track: TrackRecord) => void;
   onRemoveFromLibrary: (trackId: string) => void;
@@ -31,13 +29,11 @@ interface TrackRowProps {
 const TrackRow = memo(function TrackRow({
   track,
   index,
-  tracks,
   playlistContextId,
   isCurrent,
   isPlaying,
   showListArtwork,
   isArtBroken,
-  onPlayTrack,
   onEditArtwork,
   onAddToPlaylist,
   onRemoveFromLibrary,
@@ -48,7 +44,13 @@ const TrackRow = memo(function TrackRow({
 
   return (
     <div
-      className={`holo-list-row flex min-h-[60px] items-center gap-2 pr-2 ${
+      role="button"
+      tabIndex={0}
+      data-id={track.id}
+      data-track-id={track.id}
+      data-track-index={index}
+      aria-label={`Play ${track.title} by ${track.artist}`}
+      className={`holo-list-row flex min-h-[60px] items-center gap-2 pr-2 focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${
         isCurrent ? 'holo-list-row-active' : ''
       }`}
     >
@@ -65,12 +67,8 @@ const TrackRow = memo(function TrackRow({
         }
       />
 
-      {/* Main Row Click Target */}
-      <button
-        type="button"
-        onClick={() => onPlayTrack(tracks, index)}
-        className="flex min-w-0 flex-1 items-center gap-3 py-2 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
-      >
+      {/* Track Metadata & Cover Area */}
+      <div className="flex min-w-0 flex-1 items-center gap-3 py-2 text-left">
         {showListArtwork && (
           <div className="theme-artwork-box relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden">
             {hasValidArt && track.artworkDataUrl ? (
@@ -117,15 +115,19 @@ const TrackRow = memo(function TrackRow({
         <span className="shrink-0 font-mono text-xs tabular-nums text-[var(--text-dim)]">
           {formatTime(track.durationSec)}
         </span>
-      </button>
+      </div>
 
       {/* Row Quick Actions */}
-      <div className="flex shrink-0 items-center">
+      <div className="flex shrink-0 items-center" data-row-action="true">
         <button
           type="button"
+          data-row-action="true"
           title={hasValidArt ? 'Edit Album Art' : 'Set Album Art'}
           aria-label={`Edit album art for ${track.title}`}
-          onClick={() => onEditArtwork(track, !hasValidArt)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onEditArtwork(track, !hasValidArt);
+          }}
           className={`flex min-h-[40px] min-w-[40px] items-center justify-center hover:text-[var(--accent)] ${
             !hasValidArt ? 'text-[var(--accent)]' : 'text-[var(--text-dim)]'
           }`}
@@ -135,9 +137,13 @@ const TrackRow = memo(function TrackRow({
 
         <button
           type="button"
+          data-row-action="true"
           title="Add to Playlist"
           aria-label={`Add ${track.title} to playlist`}
-          onClick={() => onAddToPlaylist(track)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddToPlaylist(track);
+          }}
           className="flex min-h-[40px] min-w-[40px] items-center justify-center text-[var(--text-dim)] hover:text-[var(--accent)]"
         >
           <HoloPlaylistAddIcon className="h-4 w-4" />
@@ -146,9 +152,13 @@ const TrackRow = memo(function TrackRow({
         {playlistContextId ? (
           <button
             type="button"
+            data-row-action="true"
             title="Remove from Playlist"
             aria-label={`Remove ${track.title} from playlist`}
-            onClick={() => onRemoveFromPlaylist(playlistContextId, track.id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemoveFromPlaylist(playlistContextId, track.id);
+            }}
             className="flex min-h-[40px] min-w-[40px] items-center justify-center text-[var(--text-dim)] hover:text-[var(--danger-text)]"
           >
             <HoloCloseIcon className="h-3.5 w-3.5" />
@@ -156,9 +166,13 @@ const TrackRow = memo(function TrackRow({
         ) : (
           <button
             type="button"
+            data-row-action="true"
             title="Remove Track"
             aria-label={`Remove ${track.title} from library`}
-            onClick={() => onRemoveFromLibrary(track.id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemoveFromLibrary(track.id);
+            }}
             className="flex min-h-[40px] min-w-[40px] items-center justify-center text-[var(--text-dim)] hover:text-[var(--danger-text)]"
           >
             <HoloTrashIcon className="h-4 w-4" />
@@ -198,20 +212,101 @@ export const TrackList = memo(function TrackList({
   onRemoveFromPlaylist,
   onMarkArtworkBroken,
 }: TrackListProps) {
+  const tracksRef = useRef<TrackRecord[]>(tracks);
+  tracksRef.current = tracks;
+
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const lastTouchHandledAtRef = useRef<number>(0);
+
+  const playFromTarget = useCallback(
+    (target: EventTarget | null) => {
+      if (!(target instanceof Element)) return;
+      if (target.closest('[data-row-action="true"]')) return;
+      const row = target.closest<HTMLElement>('[data-track-index]');
+      if (!row) return;
+      const rawIdx = row.dataset.trackIndex;
+      const rawId = row.dataset.id;
+      const list = tracksRef.current;
+      let idx = rawIdx !== undefined ? Number(rawIdx) : -1;
+      if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) {
+        if (rawId) {
+          idx = list.findIndex((t) => t.id === rawId);
+        }
+      }
+      if (idx >= 0 && idx < list.length) {
+        onPlayTrack(list, idx);
+      }
+    },
+    [onPlayTrack]
+  );
+
+  const handleTouchStart = useCallback((e: TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length !== 1) {
+      touchStartRef.current = null;
+      return;
+    }
+    const target = e.target;
+    if (target instanceof Element && target.closest('[data-row-action="true"]')) {
+      touchStartRef.current = null;
+      return;
+    }
+    touchStartRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+    };
+  }, []);
+
+  const handleTouchEnd = useCallback(
+    (e: TouchEvent<HTMLDivElement>) => {
+      const start = touchStartRef.current;
+      touchStartRef.current = null;
+      if (!start || e.changedTouches.length !== 1) return;
+      const dx = Math.abs(e.changedTouches[0].clientX - start.x);
+      const dy = Math.abs(e.changedTouches[0].clientY - start.y);
+      if (dx < 8 && dy < 8) {
+        lastTouchHandledAtRef.current = performance.now();
+        playFromTarget(e.target);
+      }
+    },
+    [playFromTarget]
+  );
+
+  const handleClick = useCallback(
+    (e: MouseEvent<HTMLDivElement>) => {
+      if (performance.now() - lastTouchHandledAtRef.current < 450) {
+        return;
+      }
+      playFromTarget(e.target);
+    },
+    [playFromTarget]
+  );
+
   return (
-    <div className="holo-track-list">
+    <div
+      className="holo-track-list"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onClick={handleClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          const target = e.target;
+          if (target instanceof Element && !target.closest('[data-row-action="true"]')) {
+            e.preventDefault();
+            playFromTarget(target);
+          }
+        }
+      }}
+    >
       {tracks.map((track, idx) => (
         <TrackRow
           key={playlistContextId ? `${playlistContextId}-${track.id}-${idx}` : track.id}
           track={track}
           index={idx}
-          tracks={tracks}
           playlistContextId={playlistContextId}
           isCurrent={currentTrackId === track.id}
           isPlaying={isPlaying}
           showListArtwork={showListArtwork}
           isArtBroken={brokenArtIds.has(track.id)}
-          onPlayTrack={onPlayTrack}
           onEditArtwork={onEditArtwork}
           onAddToPlaylist={onAddToPlaylist}
           onRemoveFromLibrary={onRemoveFromLibrary}

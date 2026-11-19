@@ -37,7 +37,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   shakeToSkip: false,
   crossfadeSeconds: 0,
   reverbPreset: 'none',
-  visualizerMode: 'water_reflex',
+  visualizerMode: 'led_bars',
 };
 
 export function loadAppSettings(): AppSettings {
@@ -68,13 +68,13 @@ export function loadAppSettings(): AppSettings {
         ? parsed.reverbPreset
         : 'none';
     const visualizerMode =
-      parsed.visualizerMode === 'led_bars' ||
+      parsed.visualizerMode === 'water_reflex' ||
       parsed.visualizerMode === 'octave_bars' ||
       parsed.visualizerMode === 'mirror_wave' ||
       parsed.visualizerMode === 'radial' ||
       parsed.visualizerMode === 'line_area'
         ? parsed.visualizerMode
-        : 'water_reflex';
+        : 'led_bars';
     return {
       theme,
       defaultSort,

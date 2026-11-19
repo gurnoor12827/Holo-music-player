@@ -107,6 +107,10 @@ public class MainActivity extends Activity {
     private static final int REPEAT_ALL = 1;
     private static final int REPEAT_ONE = 2;
 
+    private static final int NP_STAGE_SPLIT = 0;
+    private static final int NP_STAGE_VISUALIZER = 1;
+    private static final int NP_STAGE_ARTWORK = 2;
+
     private static final int MENU_ID_SEARCH = 1;
     private static final int MENU_ID_SORT = 2;
     private static final int MENU_ID_SETTINGS = 3;
@@ -279,7 +283,7 @@ public class MainActivity extends Activity {
     private boolean resumeOnFocusGain = false;
     private boolean hasRequestedPermissionOnce = false;
     private boolean isNowPlayingOpen = false;
-    private boolean isNowPlayingVisualizerVisible = false;
+    private int nowPlayingStageMode = NP_STAGE_SPLIT;
     private boolean isSettingsOpen = false;
     private Object backInvokedCallback;
     private boolean isBackCallbackRegistered = false;
@@ -295,7 +299,7 @@ public class MainActivity extends Activity {
     private boolean shakeToSkipEnabled = false;
     private int crossfadeSeconds = 0;
     private int reverbPresetIndex = 0;
-    private int visualizerMode = AudioVisualizerView.MODE_WATER_REFLEX;
+    private int visualizerMode = AudioVisualizerView.MODE_LED_BARS;
 
     private int activeTab = TAB_ALL_SONGS;
     private int currentSortMode = SORT_TITLE_ASC;
@@ -460,7 +464,7 @@ public class MainActivity extends Activity {
         reverbPresetIndex = Math.max(0, Math.min(REVERB_LABELS.length - 1, prefs.getInt(KEY_REVERB_PRESET, 0)));
         visualizerMode = Math.max(AudioVisualizerView.MODE_WATER_REFLEX,
                 Math.min(AudioVisualizerView.MODE_AREA_LINE,
-                        prefs.getInt(KEY_VISUALIZER_MODE, AudioVisualizerView.MODE_WATER_REFLEX)));
+                        prefs.getInt(KEY_VISUALIZER_MODE, AudioVisualizerView.MODE_LED_BARS)));
 
         Set<String> storedIds = prefs.getStringSet(KEY_FAVORITE_IDS, Collections.<String>emptySet());
         favoriteSongIds.clear();
@@ -703,17 +707,41 @@ public class MainActivity extends Activity {
         if (btnNpVizSettings == null) {
             return;
         }
+        boolean vizVisible = nowPlayingStageMode != NP_STAGE_ARTWORK;
         btnNpVizSettings.setBackground(ThemeConfig.createControlSurface(
-                this, theme, isNowPlayingVisualizerVisible, radius));
+                this, theme, vizVisible, radius));
         ThemeConfig.tintButton(
                 btnNpVizSettings,
-                isNowPlayingVisualizerVisible ? theme.onAccentText : theme.textPrimary);
+                vizVisible ? theme.onAccentText : theme.textPrimary);
     }
 
-    private void setNowPlayingVisualizerVisible(boolean visible) {
-        isNowPlayingVisualizerVisible = visible;
-        ivNpArtwork.setVisibility(visible ? View.GONE : View.VISIBLE);
-        audioVisualizer.setVisibility(visible ? View.VISIBLE : View.GONE);
+    private void setNowPlayingStageMode(int stageMode) {
+        if (stageMode < NP_STAGE_SPLIT || stageMode > NP_STAGE_ARTWORK) {
+            stageMode = NP_STAGE_SPLIT;
+        }
+        nowPlayingStageMode = stageMode;
+        boolean showArtwork = stageMode != NP_STAGE_VISUALIZER;
+        boolean showVisualizer = stageMode != NP_STAGE_ARTWORK;
+
+        if (npArtFrame != null) {
+            npArtFrame.setVisibility(showArtwork ? View.VISIBLE : View.GONE);
+            ViewGroup.LayoutParams lp = npArtFrame.getLayoutParams();
+            if (lp != null) {
+                int targetPx = dpToPx(stageMode == NP_STAGE_ARTWORK ? 248 : 148);
+                if (lp.width != targetPx || lp.height != targetPx) {
+                    lp.width = targetPx;
+                    lp.height = targetPx;
+                    npArtFrame.setLayoutParams(lp);
+                }
+            }
+        }
+        if (ivNpArtwork != null) {
+            ivNpArtwork.setVisibility(showArtwork ? View.VISIBLE : View.GONE);
+        }
+        if (audioVisualizer != null) {
+            audioVisualizer.setVisibility(showVisualizer ? View.VISIBLE : View.GONE);
+        }
+
         int radius = currentTheme.id == ThemeConfig.THEME_HOLO ? 2 : (currentTheme.id == ThemeConfig.THEME_AERO ? 8 : 6);
         styleNowPlayingCornerSettingsButton(currentTheme, radius);
         long pos = 0L;
@@ -799,8 +827,12 @@ public class MainActivity extends Activity {
             ab.hide();
         }
         updateQueueCounterText();
+        Song current = findSongById(currentSongId);
+        if (tvNpHeaderTitle != null) {
+            tvNpHeaderTitle.setText(current != null ? current.title : getString(R.string.np_title));
+        }
         updateNowPlayingArtworkView(currentSongId);
-        setNowPlayingVisualizerVisible(isNowPlayingVisualizerVisible);
+        setNowPlayingStageMode(nowPlayingStageMode);
         updateBackNavigationCallback();
     }
 
@@ -1339,19 +1371,27 @@ public class MainActivity extends Activity {
         stageRowLp.topMargin = dpToPx(8);
         root.addView(stageRow, stageRowLp);
 
-        final Button btnArtworkStage = new Button(this);
-        btnArtworkStage.setText("ARTWORK");
-        btnArtworkStage.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        btnArtworkStage.setTypeface(Typeface.DEFAULT_BOLD);
-        stageRow.addView(btnArtworkStage, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+        final Button btnSplitStage = new Button(this);
+        btnSplitStage.setText("SPLIT");
+        btnSplitStage.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        btnSplitStage.setTypeface(Typeface.DEFAULT_BOLD);
+        stageRow.addView(btnSplitStage, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
 
         final Button btnVisualizerStage = new Button(this);
         btnVisualizerStage.setText("VISUALIZER");
-        btnVisualizerStage.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        btnVisualizerStage.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         btnVisualizerStage.setTypeface(Typeface.DEFAULT_BOLD);
         LinearLayout.LayoutParams vizStageLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
         vizStageLp.setMarginStart(dpToPx(6));
         stageRow.addView(btnVisualizerStage, vizStageLp);
+
+        final Button btnArtworkStage = new Button(this);
+        btnArtworkStage.setText("ARTWORK");
+        btnArtworkStage.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        btnArtworkStage.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams artStageLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
+        artStageLp.setMarginStart(dpToPx(6));
+        stageRow.addView(btnArtworkStage, artStageLp);
 
         TextView tvPresetLabel = new TextView(this);
         tvPresetLabel.setText("VISUALIZER PRESET");
@@ -1394,15 +1434,24 @@ public class MainActivity extends Activity {
         final Runnable refreshDialogStates = new Runnable() {
             @Override
             public void run() {
-                btnArtworkStage.setBackground(ThemeConfig.createControlSurface(
-                        MainActivity.this, currentTheme, !isNowPlayingVisualizerVisible, radius));
-                btnArtworkStage.setTextColor(!isNowPlayingVisualizerVisible
+                boolean splitActive = nowPlayingStageMode == NP_STAGE_SPLIT;
+                btnSplitStage.setBackground(ThemeConfig.createControlSurface(
+                        MainActivity.this, currentTheme, splitActive, radius));
+                btnSplitStage.setTextColor(splitActive
                         ? currentTheme.onAccentText
                         : currentTheme.textPrimary);
 
+                boolean vizActive = nowPlayingStageMode == NP_STAGE_VISUALIZER;
                 btnVisualizerStage.setBackground(ThemeConfig.createControlSurface(
-                        MainActivity.this, currentTheme, isNowPlayingVisualizerVisible, radius));
-                btnVisualizerStage.setTextColor(isNowPlayingVisualizerVisible
+                        MainActivity.this, currentTheme, vizActive, radius));
+                btnVisualizerStage.setTextColor(vizActive
+                        ? currentTheme.onAccentText
+                        : currentTheme.textPrimary);
+
+                boolean artActive = nowPlayingStageMode == NP_STAGE_ARTWORK;
+                btnArtworkStage.setBackground(ThemeConfig.createControlSurface(
+                        MainActivity.this, currentTheme, artActive, radius));
+                btnArtworkStage.setTextColor(artActive
                         ? currentTheme.onAccentText
                         : currentTheme.textPrimary);
 
@@ -1415,17 +1464,24 @@ public class MainActivity extends Activity {
             }
         };
 
+        btnSplitStage.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                setNowPlayingStageMode(NP_STAGE_SPLIT);
+                refreshDialogStates.run();
+            }
+        });
         btnArtworkStage.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                setNowPlayingVisualizerVisible(false);
+                setNowPlayingStageMode(NP_STAGE_ARTWORK);
                 refreshDialogStates.run();
             }
         });
         btnVisualizerStage.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                setNowPlayingVisualizerVisible(true);
+                setNowPlayingStageMode(NP_STAGE_VISUALIZER);
                 refreshDialogStates.run();
             }
         });
@@ -1435,7 +1491,9 @@ public class MainActivity extends Activity {
                 @Override
                 public void onClick(View v) {
                     setVisualizerMode(modeIdx);
-                    setNowPlayingVisualizerVisible(true);
+                    if (nowPlayingStageMode == NP_STAGE_ARTWORK) {
+                        setNowPlayingStageMode(NP_STAGE_SPLIT);
+                    }
                     refreshDialogStates.run();
                 }
             });
@@ -1994,6 +2052,9 @@ public class MainActivity extends Activity {
 
         tvNowPlayingTitle.setText(song.title);
         tvNowPlayingArtist.setText(song.artist + " - " + song.album);
+        if (tvNpHeaderTitle != null) {
+            tvNpHeaderTitle.setText(song.title);
+        }
         tvNpTitle.setText(song.title);
         tvNpArtist.setText(song.artist + " - " + song.album);
         tvNpElapsed.setText("0:00");
