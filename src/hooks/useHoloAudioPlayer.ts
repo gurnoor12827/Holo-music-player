@@ -14,46 +14,72 @@ function createReverbImpulseResponse(
   ctx: AudioContext,
   preset: Exclude<ReverbPreset, 'none'>
 ): AudioBuffer {
-  let duration = 0.85;
-  let decay = 3.6;
+  let duration = 1.0;
+  let decay = 3.2;
   let damping = 0.35;
+  let preDelaySec = 0.012;
+  let earlyTapGain = 0.28;
 
   switch (preset) {
     case 'small_room':
-      duration = 0.75;
-      decay = 4.2;
-      damping = 0.42;
+      duration = 0.9;
+      decay = 3.8;
+      damping = 0.38;
+      preDelaySec = 0.008;
+      earlyTapGain = 0.34;
       break;
     case 'medium_hall':
-      duration = 1.65;
-      decay = 2.8;
-      damping = 0.32;
+      duration = 1.85;
+      decay = 2.6;
+      damping = 0.28;
+      preDelaySec = 0.018;
+      earlyTapGain = 0.28;
       break;
     case 'large_hall':
-      duration = 2.85;
-      decay = 2.1;
-      damping = 0.25;
+      duration = 3.1;
+      decay = 1.95;
+      damping = 0.22;
+      preDelaySec = 0.028;
+      earlyTapGain = 0.24;
       break;
     case 'plate':
-      duration = 1.9;
-      decay = 2.4;
-      damping = 0.14;
+      duration = 2.2;
+      decay = 2.2;
+      damping = 0.12;
+      preDelaySec = 0.005;
+      earlyTapGain = 0.32;
       break;
   }
 
   const rate = ctx.sampleRate;
   const length = Math.max(1, Math.floor(rate * duration));
+  const preDelaySamples = Math.min(length - 1, Math.floor(rate * preDelaySec));
   const buffer = ctx.createBuffer(2, length, rate);
+
+  // Discrete early reflections (stereo decorrelated) for unmistakable room/hall presence
+  const tapTimesSec = [0.006, 0.013, 0.021, 0.029, 0.038, 0.049, 0.061, 0.074];
 
   for (let ch = 0; ch < 2; ch++) {
     const data = buffer.getChannelData(ch);
+
+    for (let tIdx = 0; tIdx < tapTimesSec.length; tIdx++) {
+      const chOffset = ch === 0 ? 0 : 0.0031;
+      const samplePos = preDelaySamples + Math.floor((tapTimesSec[tIdx] + chOffset) * rate);
+      if (samplePos > 0 && samplePos < length) {
+        const tapSign = (tIdx + ch) % 2 === 0 ? 1 : -1;
+        data[samplePos] += tapSign * earlyTapGain * Math.pow(0.82, tIdx);
+      }
+    }
+
     let lp = 0;
-    for (let i = 0; i < length; i++) {
-      const t = i / length;
-      const env = Math.pow(1 - t, decay);
+    const tailLen = Math.max(1, length - preDelaySamples);
+    for (let i = preDelaySamples; i < length; i++) {
+      const t = (i - preDelaySamples) / tailLen;
+      const attack = Math.min(1, (i - preDelaySamples) / Math.max(1, rate * 0.025));
+      const env = attack * Math.pow(1 - t, decay);
       const white = Math.random() * 2 - 1;
       lp = lp + (1 - damping) * (white - lp);
-      data[i] = lp * env * 0.68;
+      data[i] += lp * env * 0.65;
     }
   }
   return buffer;
@@ -69,6 +95,7 @@ export function useHoloAudioPlayer({
   const activeDeckRef = useRef<DeckId>(0);
   const fadeTimerRef = useRef<number | null>(null);
   const autoCrossfadeLockRef = useRef<boolean>(false);
+  const lastUiTimeRef = useRef<number>(-1);
 
   // Web Audio API graph refs
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -127,28 +154,75 @@ export function useHoloAudioPlayer({
 
   const applyReverbToGraph = useCallback((preset: ReverbPreset) => {
     const ctx = audioCtxRef.current;
+    const bass = bassFilterRef.current;
     const dry = dryGainRef.current;
     const wet = wetGainRef.current;
-    const conv = convolverRef.current;
-    if (!ctx || !dry || !wet || !conv) return;
+    if (!ctx || !bass || !dry || !wet) return;
+
+    if (ctx.state === 'suspended') {
+      void ctx.resume();
+    }
 
     const now = ctx.currentTime;
     if (preset === 'none') {
+      if (convolverRef.current) {
+        try {
+          bass.disconnect(convolverRef.current);
+        } catch {
+          // ignore if already disconnected
+        }
+        try {
+          convolverRef.current.disconnect();
+        } catch {
+          // ignore
+        }
+        convolverRef.current = null;
+      }
       dry.gain.setTargetAtTime(1.0, now, 0.02);
       wet.gain.setTargetAtTime(0.0, now, 0.02);
       return;
     }
 
-    conv.buffer = createReverbImpulseResponse(ctx, preset);
+    // Create a fresh ConvolverNode and assign normalize + buffer BEFORE connecting into live graph
+    const nextConv = ctx.createConvolver();
+    nextConv.normalize = true;
+    nextConv.buffer = createReverbImpulseResponse(ctx, preset);
+
+    if (convolverRef.current) {
+      try {
+        bass.disconnect(convolverRef.current);
+      } catch {
+        // ignore
+      }
+      try {
+        convolverRef.current.disconnect();
+      } catch {
+        // ignore
+      }
+    }
+
+    bass.connect(nextConv);
+    nextConv.connect(wet);
+    convolverRef.current = nextConv;
+
     const wetLevel =
       preset === 'small_room'
-        ? 0.24
+        ? 0.56
         : preset === 'medium_hall'
-          ? 0.34
+          ? 0.72
           : preset === 'large_hall'
-            ? 0.44
-            : 0.36;
-    dry.gain.setTargetAtTime(1.0 - wetLevel * 0.28, now, 0.02);
+            ? 0.88
+            : 0.76;
+    const dryLevel =
+      preset === 'small_room'
+        ? 0.88
+        : preset === 'medium_hall'
+          ? 0.82
+          : preset === 'large_hall'
+            ? 0.75
+            : 0.80;
+
+    dry.gain.setTargetAtTime(dryLevel, now, 0.02);
     wet.gain.setTargetAtTime(wetLevel, now, 0.02);
   }, []);
 
@@ -201,18 +275,15 @@ export function useHoloAudioPlayer({
       }
       prev.connect(bass);
 
-      // Parallel Dry / Wet Reverb bus
+      // Parallel Dry / Wet Reverb bus (convolver attached dynamically when preset !== 'none')
       const dryGain = ctx.createGain();
       const wetGain = ctx.createGain();
-      const convolver = ctx.createConvolver();
       dryGain.gain.value = 1;
       wetGain.gain.value = 0;
 
       const postFxBus = ctx.createGain();
       bass.connect(dryGain);
       dryGain.connect(postFxBus);
-      bass.connect(convolver);
-      convolver.connect(wetGain);
       wetGain.connect(postFxBus);
 
       const analyser = ctx.createAnalyser();
@@ -236,7 +307,7 @@ export function useHoloAudioPlayer({
       bassFilterRef.current = bass;
       dryGainRef.current = dryGain;
       wetGainRef.current = wetGain;
-      convolverRef.current = convolver;
+      convolverRef.current = null;
       postFxBusRef.current = postFxBus;
       analyserRef.current = analyser;
     }
@@ -309,6 +380,7 @@ export function useHoloAudioPlayer({
 
       activeDeckRef.current = incomingDeckId;
       autoCrossfadeLockRef.current = false;
+      lastUiTimeRef.current = 0;
 
       setPlaybackError(null);
       setQueue(targetQueue);
@@ -457,6 +529,7 @@ export function useHoloAudioPlayer({
     if (!activeEl) return;
     autoCrossfadeLockRef.current = false;
     activeEl.currentTime = seconds;
+    lastUiTimeRef.current = seconds;
     setCurrentTime(seconds);
   }, []);
 
@@ -498,7 +571,15 @@ export function useHoloAudioPlayer({
       const onTimeUpdate = () => {
         if (activeDeckRef.current !== deckId) return;
         const pos = el.currentTime || 0;
-        setCurrentTime(pos);
+        const prev = lastUiTimeRef.current;
+        if (
+          prev < 0 ||
+          Math.floor(pos) !== Math.floor(prev) ||
+          Math.abs(pos - prev) >= 0.5
+        ) {
+          lastUiTimeRef.current = pos;
+          setCurrentTime(pos);
+        }
 
         const cf = crossfadeRef.current;
         if (

@@ -30,6 +30,7 @@ import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
+import android.media.audiofx.EnvironmentalReverb;
 import android.media.audiofx.PresetReverb;
 import android.net.Uri;
 import android.os.Build;
@@ -250,6 +251,8 @@ public class MainActivity extends Activity {
     private SongAdapter songAdapter;
     private MediaPlayer mediaPlayer;
     private MediaPlayer fadingOutPlayer;
+    private EnvironmentalReverb environmentalReverb;
+    private int environmentalReverbSessionId = 0;
     private PresetReverb presetReverb;
     private AudioManager audioManager;
     private AudioFocusRequest audioFocusRequest;
@@ -1774,18 +1777,132 @@ public class MainActivity extends Activity {
         crossfadeDurationMs = 0L;
     }
 
+    private void releaseEnvironmentalReverb() {
+        if (environmentalReverb != null) {
+            try {
+                environmentalReverb.setEnabled(false);
+            } catch (Exception ignored) {
+            }
+            try {
+                environmentalReverb.release();
+            } catch (Exception ignored) {
+            }
+            environmentalReverb = null;
+            environmentalReverbSessionId = 0;
+        }
+    }
+
     private void applyReverbToPlayer(MediaPlayer player) {
         if (player == null) {
             return;
         }
+        int sessionId = 0;
         try {
-            if (reverbPresetIndex <= 0) {
+            sessionId = player.getAudioSessionId();
+        } catch (Exception ignored) {
+        }
+
+        if (reverbPresetIndex <= 0) {
+            try {
+                player.setAuxEffectSendLevel(0.0f);
+            } catch (Exception ignored) {
+            }
+            if (environmentalReverb != null) {
+                try {
+                    environmentalReverb.setEnabled(false);
+                } catch (Exception ignored) {
+                }
+            }
+            if (presetReverb != null) {
+                try {
+                    presetReverb.setEnabled(false);
+                } catch (Exception ignored) {
+                }
+            }
+            return;
+        }
+
+        // 1. Prefer per-session EnvironmentalReverb (insert effect directly on MediaPlayer audioSessionId)
+        boolean envApplied = false;
+        if (sessionId > 0) {
+            try {
+                if (environmentalReverb == null || environmentalReverbSessionId != sessionId) {
+                    releaseEnvironmentalReverb();
+                    environmentalReverb = new EnvironmentalReverb(0, sessionId);
+                    environmentalReverbSessionId = sessionId;
+                }
+                switch (reverbPresetIndex) {
+                    case 1: // Small Room
+                        environmentalReverb.setRoomLevel((short) -400);
+                        environmentalReverb.setRoomHFLevel((short) -600);
+                        environmentalReverb.setDecayTime(750);
+                        environmentalReverb.setDecayHFRatio((short) 700);
+                        environmentalReverb.setReflectionsLevel((short) -450);
+                        environmentalReverb.setReflectionsDelay(14);
+                        environmentalReverb.setReverbLevel((short) 150);
+                        environmentalReverb.setReverbDelay(22);
+                        environmentalReverb.setDiffusion((short) 850);
+                        environmentalReverb.setDensity((short) 850);
+                        break;
+                    case 2: // Medium Hall
+                        environmentalReverb.setRoomLevel((short) -200);
+                        environmentalReverb.setRoomHFLevel((short) -450);
+                        environmentalReverb.setDecayTime(1700);
+                        environmentalReverb.setDecayHFRatio((short) 650);
+                        environmentalReverb.setReflectionsLevel((short) -300);
+                        environmentalReverb.setReflectionsDelay(24);
+                        environmentalReverb.setReverbLevel((short) 450);
+                        environmentalReverb.setReverbDelay(38);
+                        environmentalReverb.setDiffusion((short) 950);
+                        environmentalReverb.setDensity((short) 900);
+                        break;
+                    case 3: // Large Hall
+                        environmentalReverb.setRoomLevel((short) -100);
+                        environmentalReverb.setRoomHFLevel((short) -350);
+                        environmentalReverb.setDecayTime(2900);
+                        environmentalReverb.setDecayHFRatio((short) 600);
+                        environmentalReverb.setReflectionsLevel((short) -200);
+                        environmentalReverb.setReflectionsDelay(36);
+                        environmentalReverb.setReverbLevel((short) 750);
+                        environmentalReverb.setReverbDelay(55);
+                        environmentalReverb.setDiffusion((short) 1000);
+                        environmentalReverb.setDensity((short) 1000);
+                        break;
+                    case 4: // Studio Plate
+                    default:
+                        environmentalReverb.setRoomLevel((short) -150);
+                        environmentalReverb.setRoomHFLevel((short) -150);
+                        environmentalReverb.setDecayTime(2100);
+                        environmentalReverb.setDecayHFRatio((short) 900);
+                        environmentalReverb.setReflectionsLevel((short) -250);
+                        environmentalReverb.setReflectionsDelay(10);
+                        environmentalReverb.setReverbLevel((short) 600);
+                        environmentalReverb.setReverbDelay(18);
+                        environmentalReverb.setDiffusion((short) 1000);
+                        environmentalReverb.setDensity((short) 950);
+                        break;
+                }
+                int enableRes = environmentalReverb.setEnabled(true);
+                envApplied = (enableRes == android.media.audiofx.AudioEffect.SUCCESS)
+                        || environmentalReverb.getEnabled();
+            } catch (Exception ignored) {
+                releaseEnvironmentalReverb();
+            }
+        }
+
+        if (envApplied) {
+            try {
                 player.setAuxEffectSendLevel(0.0f);
                 if (presetReverb != null) {
                     presetReverb.setEnabled(false);
                 }
-                return;
+            } catch (Exception ignored) {
             }
+            return;
+        }
+
+        // 2. Fallback to session-0 PresetReverb aux bus with full send level
+        try {
             if (presetReverb == null) {
                 presetReverb = new PresetReverb(0, 0);
             }
@@ -1810,7 +1927,7 @@ public class MainActivity extends Activity {
             presetReverb.setPreset(presetCode);
             presetReverb.setEnabled(true);
             player.attachAuxEffect(presetReverb.getId());
-            player.setAuxEffectSendLevel(0.78f);
+            player.setAuxEffectSendLevel(1.0f);
         } catch (Exception ignored) {
         }
     }
@@ -2247,6 +2364,7 @@ public class MainActivity extends Activity {
         artThumbCache.evictAll();
         abandonAudioFocus();
         releaseFadingOutPlayer();
+        releaseEnvironmentalReverb();
         if (presetReverb != null) {
             try {
                 presetReverb.release();

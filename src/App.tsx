@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { HoloAlbumArtDialog } from './components/HoloAlbumArtDialog';
 import {
   HoloAddToPlaylistDialog,
@@ -12,7 +12,6 @@ import {
   HoloCloseIcon,
   HoloEqualizerIcon,
   HoloFolderMusicIcon,
-  HoloImageEditIcon,
   HoloMusicNoteIcon,
   HoloNextIcon,
   HoloPauseIcon,
@@ -27,6 +26,7 @@ import {
 } from './components/HoloIcons';
 import { NowPlayingView } from './components/NowPlayingView';
 import { SettingsView } from './components/SettingsView';
+import { TrackList } from './components/TrackList';
 import { useHoloAudioPlayer } from './hooks/useHoloAudioPlayer';
 import type {
   AppSettings,
@@ -69,6 +69,8 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>(() => loadAppSettings());
   const [tracks, setTracks] = useState<TrackRecord[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistRecord[]>([]);
+  const playlistsRef = useRef<PlaylistRecord[]>(playlists);
+  playlistsRef.current = playlists;
   const [isLoadingDb, setIsLoadingDb] = useState(true);
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -254,30 +256,36 @@ export default function App() {
     e.target.value = '';
   };
 
-  const handleRemoveTrack = async (trackId: string) => {
-    player.stopIfTrackRemoved(trackId);
-    setTracks((prev) => prev.filter((t) => t.id !== trackId));
-    try {
-      await deleteTrackFromDb(trackId);
-      const updatedPlaylists: PlaylistRecord[] = [];
-      for (const pl of playlists) {
-        if (pl.trackIds.includes(trackId)) {
-          const nextPl: PlaylistRecord = {
-            ...pl,
-            trackIds: pl.trackIds.filter((id) => id !== trackId),
-            updatedAt: Date.now(),
-          };
-          updatedPlaylists.push(nextPl);
-          await savePlaylist(nextPl);
-        } else {
-          updatedPlaylists.push(pl);
+  const stopIfTrackRemoved = player.stopIfTrackRemoved;
+
+  const handleRemoveTrack = useCallback(
+    async (trackId: string) => {
+      stopIfTrackRemoved(trackId);
+      setTracks((prev) => prev.filter((t) => t.id !== trackId));
+      try {
+        await deleteTrackFromDb(trackId);
+        const currentPlaylists = playlistsRef.current;
+        const updatedPlaylists: PlaylistRecord[] = [];
+        for (const pl of currentPlaylists) {
+          if (pl.trackIds.includes(trackId)) {
+            const nextPl: PlaylistRecord = {
+              ...pl,
+              trackIds: pl.trackIds.filter((id) => id !== trackId),
+              updatedAt: Date.now(),
+            };
+            updatedPlaylists.push(nextPl);
+            await savePlaylist(nextPl);
+          } else {
+            updatedPlaylists.push(pl);
+          }
         }
+        setPlaylists(updatedPlaylists);
+      } catch {
+        setStatusMessage('Could not remove track from IndexedDB.');
       }
-      setPlaylists(updatedPlaylists);
-    } catch {
-      setStatusMessage('Could not remove track from IndexedDB.');
-    }
-  };
+    },
+    [stopIfTrackRemoved]
+  );
 
   const handleClearLibrary = async () => {
     setShowImportMenu(false);
@@ -313,7 +321,7 @@ export default function App() {
     }
   };
 
-  const handleToggleTrackInPlaylist = async (playlistId: string, trackId: string) => {
+  const handleToggleTrackInPlaylist = useCallback(async (playlistId: string, trackId: string) => {
     let targetUpdated: PlaylistRecord | null = null;
     setPlaylists((prev) =>
       prev.map((pl) => {
@@ -333,7 +341,7 @@ export default function App() {
         setStatusMessage('Failed to update playlist in IndexedDB.');
       }
     }
-  };
+  }, []);
 
   const handleDeletePlaylist = async (playlistId: string) => {
     setPlaylists((prev) => prev.filter((pl) => pl.id !== playlistId));
@@ -348,14 +356,32 @@ export default function App() {
     }
   };
 
-  const markArtworkCorrupted = (trackId: string) => {
+  const markArtworkCorrupted = useCallback((trackId: string) => {
     setBrokenArtIds((prev) => {
       if (prev.has(trackId)) return prev;
       const next = new Set(prev);
       next.add(trackId);
       return next;
     });
-  };
+  }, []);
+
+  const handleEditTrackArtwork = useCallback((track: TrackRecord, isCorrupted: boolean) => {
+    setEditingArtState({ track, isCorrupted });
+  }, []);
+
+  const handleRemoveTrackAction = useCallback(
+    (trackId: string) => {
+      void handleRemoveTrack(trackId);
+    },
+    [handleRemoveTrack]
+  );
+
+  const handleRemoveFromPlaylistAction = useCallback(
+    (playlistId: string, trackId: string) => {
+      void handleToggleTrackInPlaylist(playlistId, trackId);
+    },
+    [handleToggleTrackInPlaylist]
+  );
 
   const openAlbumArtEditor = (track: TrackRecord) => {
     setEditingArtState({
@@ -560,141 +586,8 @@ export default function App() {
       ? `${player.queueIndex + 1} / ${player.queueLength}`
       : null;
 
-  const renderTrackRow = (
-    track: TrackRecord,
-    index: number,
-    list: TrackRecord[],
-    playlistContextId?: string
-  ) => {
-    const isCurrent = player.currentTrack?.id === track.id;
-    const isArtBroken = brokenArtIds.has(track.id);
-    const hasValidArt = Boolean(track.artworkDataUrl) && !isArtBroken;
-
-    return (
-      <div
-        key={`${playlistContextId || 'lib'}-${track.id}-${index}`}
-        className={`holo-list-row flex min-h-[60px] items-center gap-2 pr-2 ${
-          isCurrent ? 'holo-list-row-active' : ''
-        }`}
-      >
-        {/* Active Indicator */}
-        <div
-          className="w-1 shrink-0 self-stretch"
-          style={
-            isCurrent
-              ? {
-                  backgroundColor: 'var(--accent)',
-                  boxShadow: '0 0 8px var(--accent-glow)',
-                }
-              : { backgroundColor: 'transparent' }
-          }
-        />
-
-        {/* Main Row Click Target */}
-        <button
-          type="button"
-          onClick={() => player.playTrackFromList(list, index)}
-          className="flex min-w-0 flex-1 items-center gap-3 py-2 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
-        >
-          {settings.showListArtwork && (
-            <div className="theme-artwork-box relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden">
-              {hasValidArt && track.artworkDataUrl ? (
-                <img
-                  src={track.artworkDataUrl}
-                  alt={`${track.album} cover`}
-                  onError={() => markArtworkCorrupted(track.id)}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <HoloMusicNoteIcon
-                  className={`h-5 w-5 ${
-                    isCurrent ? 'text-[var(--accent)]' : 'text-[var(--text-dim)]'
-                  }`}
-                />
-              )}
-              {isCurrent && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                  {player.isPlaying ? (
-                    <HoloPlayIcon className="h-5 w-5 text-[var(--accent)]" />
-                  ) : (
-                    <HoloPauseIcon className="h-5 w-5 text-[var(--accent)]" />
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="min-w-0 flex-1">
-            <div
-              className={`truncate text-sm font-medium ${
-                isCurrent ? 'font-semibold text-[var(--accent)]' : 'text-[var(--text-primary)]'
-              }`}
-            >
-              {track.title}
-            </div>
-            <div className="mt-0.5 truncate text-xs text-[var(--text-secondary)]">
-              {track.artist}
-              {track.album ? ` · ${track.album}` : ''}
-            </div>
-          </div>
-
-          <span className="shrink-0 font-mono text-xs tabular-nums text-[var(--text-dim)]">
-            {formatTime(track.durationSec)}
-          </span>
-        </button>
-
-        {/* Row Quick Actions */}
-        <div className="flex shrink-0 items-center">
-          <button
-            type="button"
-            title={hasValidArt ? 'Edit Album Art' : 'Set Album Art'}
-            aria-label={`Edit album art for ${track.title}`}
-            onClick={() => openAlbumArtEditor(track)}
-            className={`flex min-h-[40px] min-w-[40px] items-center justify-center hover:text-[var(--accent)] ${
-              !hasValidArt ? 'text-[var(--accent)]' : 'text-[var(--text-dim)]'
-            }`}
-          >
-            <HoloImageEditIcon className="h-4 w-4" />
-          </button>
-
-          <button
-            type="button"
-            title="Add to Playlist"
-            aria-label={`Add ${track.title} to playlist`}
-            onClick={() => setAddToPlaylistTrack(track)}
-            className="flex min-h-[40px] min-w-[40px] items-center justify-center text-[var(--text-dim)] hover:text-[var(--accent)]"
-          >
-            <HoloPlaylistAddIcon className="h-4 w-4" />
-          </button>
-
-          {playlistContextId ? (
-            <button
-              type="button"
-              title="Remove from Playlist"
-              aria-label={`Remove ${track.title} from playlist`}
-              onClick={() => void handleToggleTrackInPlaylist(playlistContextId, track.id)}
-              className="flex min-h-[40px] min-w-[40px] items-center justify-center text-[var(--text-dim)] hover:text-[var(--danger-text)]"
-            >
-              <HoloCloseIcon className="h-3.5 w-3.5" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              title="Remove Track"
-              aria-label={`Remove ${track.title} from library`}
-              onClick={() => void handleRemoveTrack(track.id)}
-              className="flex min-h-[40px] min-w-[40px] items-center justify-center text-[var(--text-dim)] hover:text-[var(--danger-text)]"
-            >
-              <HoloTrashIcon className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  };
-
   return (
-    <div className="holo-bg-gradient flex h-dvh w-full flex-col overflow-hidden">
+    <div className="holo-bg-gradient fixed inset-0 flex h-full max-h-screen w-full flex-col overflow-hidden">
       {/* Hidden Real File & Folder Inputs */}
       <input
         ref={fileInputRef}
@@ -915,12 +808,13 @@ export default function App() {
       )}
 
       {/* Main Scrollable Library Content */}
-      <main
-        className="holo-scroll min-h-0 flex-1 overflow-y-auto"
-        onClick={() => {
-          if (showImportMenu) setShowImportMenu(false);
-        }}
-      >
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        <main
+          className="holo-scroll holo-track-scroll"
+          onClick={() => {
+            if (showImportMenu) setShowImportMenu(false);
+          }}
+        >
         {isLoadingDb ? (
           <div className="flex h-full flex-col items-center justify-center p-8 text-center">
             <div className="h-7 w-7 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
@@ -974,9 +868,19 @@ export default function App() {
                 No tracks matched &ldquo;{searchQuery}&rdquo;.
               </div>
             ) : (
-              <div>
-                {sortedTracks.map((track, idx) => renderTrackRow(track, idx, sortedTracks))}
-              </div>
+              <TrackList
+                tracks={sortedTracks}
+                currentTrackId={player.currentTrack?.id ?? null}
+                isPlaying={player.isPlaying}
+                showListArtwork={settings.showListArtwork}
+                brokenArtIds={brokenArtIds}
+                onPlayTrack={player.playTrackFromList}
+                onEditArtwork={handleEditTrackArtwork}
+                onAddToPlaylist={setAddToPlaylistTrack}
+                onRemoveFromLibrary={handleRemoveTrackAction}
+                onRemoveFromPlaylist={handleRemoveFromPlaylistAction}
+                onMarkArtworkBroken={markArtworkCorrupted}
+              />
             )}
           </div>
         ) : activeTab === 'artists' ? (
@@ -1004,11 +908,19 @@ export default function App() {
                   Play All
                 </button>
               </div>
-              <div>
-                {activeArtistGroup.tracks.map((track, idx) =>
-                  renderTrackRow(track, idx, activeArtistGroup.tracks)
-                )}
-              </div>
+              <TrackList
+                tracks={activeArtistGroup.tracks}
+                currentTrackId={player.currentTrack?.id ?? null}
+                isPlaying={player.isPlaying}
+                showListArtwork={settings.showListArtwork}
+                brokenArtIds={brokenArtIds}
+                onPlayTrack={player.playTrackFromList}
+                onEditArtwork={handleEditTrackArtwork}
+                onAddToPlaylist={setAddToPlaylistTrack}
+                onRemoveFromLibrary={handleRemoveTrackAction}
+                onRemoveFromPlaylist={handleRemoveFromPlaylistAction}
+                onMarkArtworkBroken={markArtworkCorrupted}
+              />
             </div>
           ) : (
             <div>
@@ -1084,11 +996,19 @@ export default function App() {
                   Play Album
                 </button>
               </div>
-              <div>
-                {activeAlbumGroup.tracks.map((track, idx) =>
-                  renderTrackRow(track, idx, activeAlbumGroup.tracks)
-                )}
-              </div>
+              <TrackList
+                tracks={activeAlbumGroup.tracks}
+                currentTrackId={player.currentTrack?.id ?? null}
+                isPlaying={player.isPlaying}
+                showListArtwork={settings.showListArtwork}
+                brokenArtIds={brokenArtIds}
+                onPlayTrack={player.playTrackFromList}
+                onEditArtwork={handleEditTrackArtwork}
+                onAddToPlaylist={setAddToPlaylistTrack}
+                onRemoveFromLibrary={handleRemoveTrackAction}
+                onRemoveFromPlaylist={handleRemoveFromPlaylistAction}
+                onMarkArtworkBroken={markArtworkCorrupted}
+              />
             </div>
           ) : (
             <div>
@@ -1194,11 +1114,20 @@ export default function App() {
                 </button>
               </div>
             ) : (
-              <div>
-                {activePlaylistTracks.map((track, idx) =>
-                  renderTrackRow(track, idx, activePlaylistTracks, activePlaylist.id)
-                )}
-              </div>
+              <TrackList
+                tracks={activePlaylistTracks}
+                playlistContextId={activePlaylist.id}
+                currentTrackId={player.currentTrack?.id ?? null}
+                isPlaying={player.isPlaying}
+                showListArtwork={settings.showListArtwork}
+                brokenArtIds={brokenArtIds}
+                onPlayTrack={player.playTrackFromList}
+                onEditArtwork={handleEditTrackArtwork}
+                onAddToPlaylist={setAddToPlaylistTrack}
+                onRemoveFromLibrary={handleRemoveTrackAction}
+                onRemoveFromPlaylist={handleRemoveFromPlaylistAction}
+                onMarkArtworkBroken={markArtworkCorrupted}
+              />
             )}
           </div>
         ) : (
@@ -1314,7 +1243,8 @@ export default function App() {
             )}
           </div>
         )}
-      </main>
+        </main>
+      </div>
 
       {/* Compact Docked Mini-Player (Tap track info to open full-screen Now Playing) */}
       <footer className="holo-dock-surface relative shrink-0">

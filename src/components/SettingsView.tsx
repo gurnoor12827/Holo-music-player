@@ -88,8 +88,9 @@ export function SettingsView({
       </header>
 
       {/* Settings List */}
-      <div className="holo-scroll flex-1 overflow-y-auto">
-        <div className="w-full pb-8">
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div className="holo-scroll holo-track-scroll">
+          <div className="w-full pb-8">
           {/* Theme Switcher */}
           <div className="holo-subheader-surface px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--accent)]">
             Theme
@@ -503,6 +504,7 @@ export function SettingsView({
               )}
             </div>
           )}
+          </div>
         </div>
       </div>
     </section>
