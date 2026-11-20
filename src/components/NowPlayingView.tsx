@@ -31,10 +31,8 @@ interface NowPlayingViewProps {
   repeat: RepeatMode;
   isArtworkBroken: boolean;
   queuePositionLabel: string | null;
-  getAudioMotionTarget: () => {
-    audioCtx: AudioContext | null;
-    sourceNode: AudioNode | null;
-  };
+  sleepTimerRemainingSec: number | null;
+  getAnalyserNode: () => AnalyserNode | null;
   onChangeVisualizerMode: (mode: VisualizerMode) => void;
   onCollapse: () => void;
   onTogglePlayPause: () => void;
@@ -43,6 +41,7 @@ interface NowPlayingViewProps {
   onSeek: (seconds: number) => void;
   onToggleShuffle: () => void;
   onCycleRepeat: () => void;
+  onInspectMetadata: (track: TrackRecord) => void;
   onOpenArtworkEditor: (track: TrackRecord) => void;
   onMarkArtworkBroken: (trackId: string) => void;
   onOpenEqualizer: () => void;
@@ -60,7 +59,8 @@ export function NowPlayingView({
   repeat,
   isArtworkBroken,
   queuePositionLabel,
-  getAudioMotionTarget,
+  sleepTimerRemainingSec,
+  getAnalyserNode,
   onChangeVisualizerMode,
   onCollapse,
   onTogglePlayPause,
@@ -69,6 +69,7 @@ export function NowPlayingView({
   onSeek,
   onToggleShuffle,
   onCycleRepeat,
+  onInspectMetadata,
   onOpenArtworkEditor,
   onMarkArtworkBroken,
   onOpenEqualizer,
@@ -85,6 +86,13 @@ export function NowPlayingView({
 
   const showArtwork = stageMode === 'combined' || stageMode === 'artwork';
   const showVisualizer = stageMode === 'combined' || stageMode === 'visualizer';
+
+  const headerSubLabel = [
+    queuePositionLabel,
+    sleepTimerRemainingSec !== null ? `Sleep ${formatTime(sleepTimerRemainingSec)}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <section
@@ -106,9 +114,9 @@ export function NowPlayingView({
           <h2 className="truncate text-sm font-semibold tracking-wide text-[var(--text-primary)]">
             {track ? track.title : 'Now Playing'}
           </h2>
-          {queuePositionLabel && (
+          {headerSubLabel && (
             <div className="font-mono text-[11px] tabular-nums text-[var(--text-dim)]">
-              {queuePositionLabel}
+              {headerSubLabel}
             </div>
           )}
         </div>
@@ -139,17 +147,24 @@ export function NowPlayingView({
 
       {/* Main Edge-to-Edge Vertical Stage */}
       <div className="flex min-h-0 flex-1 flex-col items-center overflow-hidden pt-3">
-        {/* Centered Album Art Container */}
+        {/* Centered Album Art Container (Tap to inspect ID3 Metadata) */}
         {showArtwork && (
           <div className="flex shrink-0 flex-col items-center px-6">
             <button
               type="button"
               disabled={!track}
               onClick={() => {
-                if (track) onOpenArtworkEditor(track);
+                if (track) onInspectMetadata(track);
               }}
-              aria-label={track ? `Edit cover art for ${track.title}` : 'No album art'}
+              aria-label={
+                track
+                  ? `Inspect ID3 metadata for ${track.title}`
+                  : 'No album art'
+              }
+              title={track ? 'Tap to inspect ID3 track metadata' : undefined}
               className={`theme-album-sleeve group relative flex aspect-square items-center justify-center overflow-hidden disabled:cursor-default ${
+                hasValidArt ? '' : 'theme-artwork-fallback'
+              } ${
                 stageMode === 'artwork'
                   ? 'h-[36vh] min-h-[190px] max-h-[300px]'
                   : 'h-[18vh] min-h-[112px] max-h-[168px]'
@@ -159,12 +174,19 @@ export function NowPlayingView({
                 <img
                   src={track.artworkDataUrl}
                   alt={`${track.album} cover`}
+                  referrerPolicy="no-referrer"
                   onError={() => onMarkArtworkBroken(track.id)}
                   className="h-full w-full object-cover"
                 />
               ) : (
                 <div className="flex flex-col items-center justify-center text-[var(--accent)]">
-                  <HoloVinylIcon className={stageMode === 'artwork' ? 'h-24 w-24' : 'h-14 w-14'} />
+                  <HoloVinylIcon
+                    className={
+                      stageMode === 'artwork'
+                        ? 'h-24 w-24 drop-shadow-sm'
+                        : 'h-14 w-14 drop-shadow-sm'
+                    }
+                  />
                 </div>
               )}
             </button>
@@ -189,7 +211,8 @@ export function NowPlayingView({
             <AudioVisualizer
               theme={theme}
               mode={visualizerMode}
-              getAudioMotionTarget={getAudioMotionTarget}
+              isPlaying={isPlaying}
+              getAnalyserNode={getAnalyserNode}
             />
           </div>
         ) : (
@@ -321,7 +344,9 @@ export function NowPlayingView({
             className="holo-dialog-surface w-full max-w-xs overflow-hidden"
           >
             <div className="flex items-center justify-between border-b-2 border-[var(--accent)] px-4 py-3">
-              <h3 className="text-sm font-semibold text-[var(--accent)]">Display & Visualizer</h3>
+              <h3 className="text-sm font-semibold text-[var(--accent)]">
+                Display & Visualizer
+              </h3>
               <button
                 type="button"
                 onClick={() => setShowDisplaySettings(false)}

@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef, type MouseEvent, type TouchEvent } from 'react';
+import { memo, useCallback, useEffect, useRef } from 'react';
 import type { TrackRecord } from '../types/music';
 import { formatTime } from '../utils/audioMetadata';
 import {
@@ -46,9 +46,10 @@ const TrackRow = memo(function TrackRow({
     <div
       role="button"
       tabIndex={0}
+      data-index={index}
+      data-track-index={index}
       data-id={track.id}
       data-track-id={track.id}
-      data-track-index={index}
       aria-label={`Play ${track.title} by ${track.artist}`}
       className={`holo-list-row flex min-h-[60px] items-center gap-2 pr-2 focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${
         isCurrent ? 'holo-list-row-active' : ''
@@ -56,38 +57,43 @@ const TrackRow = memo(function TrackRow({
     >
       {/* Active Indicator */}
       <div
-        className="w-1 shrink-0 self-stretch"
+        className="pointer-events-none w-1 shrink-0 self-stretch"
         style={
           isCurrent
             ? {
                 backgroundColor: 'var(--accent)',
-                boxShadow: '0 0 8px var(--accent-glow)',
+                boxShadow: '0 0 10px var(--accent-glow)',
               }
             : { backgroundColor: 'transparent' }
         }
       />
 
       {/* Track Metadata & Cover Area */}
-      <div className="flex min-w-0 flex-1 items-center gap-3 py-2 text-left">
+      <div className="pointer-events-none flex min-w-0 flex-1 items-center gap-3 py-2 text-left">
         {showListArtwork && (
-          <div className="theme-artwork-box relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden">
+          <div
+            className={`theme-artwork-box relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden ${
+              !hasValidArt ? 'theme-artwork-fallback' : ''
+            }`}
+          >
             {hasValidArt && track.artworkDataUrl ? (
               <img
                 src={track.artworkDataUrl}
                 alt={`${track.album} cover`}
                 decoding="async"
+                referrerPolicy="no-referrer"
                 onError={() => onMarkArtworkBroken(track.id)}
                 className="h-full w-full object-cover"
               />
             ) : (
               <HoloMusicNoteIcon
-                className={`h-5 w-5 ${
-                  isCurrent ? 'text-[var(--accent)]' : 'text-[var(--text-dim)]'
+                className={`h-5 w-5 drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)] ${
+                  isCurrent ? 'text-[var(--accent)]' : 'text-[var(--text-primary)] opacity-85'
                 }`}
               />
             )}
             {isCurrent && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+              <div className="absolute inset-0 flex items-center justify-center bg-black/55">
                 {isPlaying ? (
                   <HoloPlayIcon className="h-5 w-5 text-[var(--accent)]" />
                 ) : (
@@ -118,7 +124,7 @@ const TrackRow = memo(function TrackRow({
       </div>
 
       {/* Row Quick Actions */}
-      <div className="flex shrink-0 items-center" data-row-action="true">
+      <div className="flex shrink-0 items-center gap-0.5" data-row-action="true">
         <button
           type="button"
           data-row-action="true"
@@ -191,6 +197,11 @@ interface TrackListProps {
   showListArtwork: boolean;
   brokenArtIds: Set<string>;
   onPlayTrack: (tracks: TrackRecord[], index: number) => void;
+  onLongPressTrack?: (
+    tracks: TrackRecord[],
+    index: number,
+    playlistContextId?: string
+  ) => void;
   onEditArtwork: (track: TrackRecord, isCorrupted: boolean) => void;
   onAddToPlaylist: (track: TrackRecord) => void;
   onRemoveFromLibrary: (trackId: string) => void;
@@ -206,93 +217,144 @@ export const TrackList = memo(function TrackList({
   showListArtwork,
   brokenArtIds,
   onPlayTrack,
+  onLongPressTrack,
   onEditArtwork,
   onAddToPlaylist,
   onRemoveFromLibrary,
   onRemoveFromPlaylist,
   onMarkArtworkBroken,
 }: TrackListProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const tracksRef = useRef<TrackRecord[]>(tracks);
   tracksRef.current = tracks;
 
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
-  const lastTouchHandledAtRef = useRef<number>(0);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressOriginRef = useRef<{ x: number; y: number } | null>(null);
+  const suppressNextClickRef = useRef(false);
 
-  const playFromTarget = useCallback(
-    (target: EventTarget | null) => {
-      if (!(target instanceof Element)) return;
-      if (target.closest('[data-row-action="true"]')) return;
-      const row = target.closest<HTMLElement>('[data-track-index]');
-      if (!row) return;
-      const rawIdx = row.dataset.trackIndex;
-      const rawId = row.dataset.id;
-      const list = tracksRef.current;
-      let idx = rawIdx !== undefined ? Number(rawIdx) : -1;
-      if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) {
-        if (rawId) {
-          idx = list.findIndex((t) => t.id === rawId);
-        }
+  const resolveRowIndex = useCallback((target: EventTarget | null): number => {
+    if (!(target instanceof Element)) return -1;
+    if (target.closest('[data-row-action="true"]')) return -1;
+    const row = target.closest<HTMLElement>('[data-index], [data-track-index]');
+    if (!row) return -1;
+    const rawIdx = row.dataset.index ?? row.dataset.trackIndex;
+    const rawId = row.dataset.id ?? row.dataset.trackId;
+    const list = tracksRef.current;
+    let idx = rawIdx !== undefined ? Number(rawIdx) : -1;
+    if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) {
+      if (rawId) {
+        idx = list.findIndex((t) => t.id === rawId);
       }
-      if (idx >= 0 && idx < list.length) {
-        onPlayTrack(list, idx);
+    }
+    return idx >= 0 && idx < list.length ? idx : -1;
+  }, []);
+
+  const playTrack = useCallback(
+    (index: number) => {
+      const list = tracksRef.current;
+      if (index >= 0 && index < list.length) {
+        onPlayTrack(list, index);
       }
     },
     [onPlayTrack]
   );
 
-  const handleTouchStart = useCallback((e: TouchEvent<HTMLDivElement>) => {
-    if (e.touches.length !== 1) {
-      touchStartRef.current = null;
-      return;
+  const clearLongPressTimer = useCallback(() => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
     }
-    const target = e.target;
-    if (target instanceof Element && target.closest('[data-row-action="true"]')) {
-      touchStartRef.current = null;
-      return;
-    }
-    touchStartRef.current = {
-      x: e.touches[0].clientX,
-      y: e.touches[0].clientY,
-    };
+    longPressOriginRef.current = null;
   }, []);
 
-  const handleTouchEnd = useCallback(
-    (e: TouchEvent<HTMLDivElement>) => {
-      const start = touchStartRef.current;
-      touchStartRef.current = null;
-      if (!start || e.changedTouches.length !== 1) return;
-      const dx = Math.abs(e.changedTouches[0].clientX - start.x);
-      const dy = Math.abs(e.changedTouches[0].clientY - start.y);
-      if (dx < 8 && dy < 8) {
-        lastTouchHandledAtRef.current = performance.now();
-        playFromTarget(e.target);
-      }
-    },
-    [playFromTarget]
-  );
+  useEffect(() => {
+    const trackListContainer = containerRef.current;
+    if (!trackListContainer) return;
 
-  const handleClick = useCallback(
-    (e: MouseEvent<HTMLDivElement>) => {
-      if (performance.now() - lastTouchHandledAtRef.current < 450) {
+    const handleDelegatedClick = (e: globalThis.MouseEvent) => {
+      if (suppressNextClickRef.current) {
+        suppressNextClickRef.current = false;
+        e.preventDefault();
+        e.stopPropagation();
         return;
       }
-      playFromTarget(e.target);
-    },
-    [playFromTarget]
-  );
+      const index = resolveRowIndex(e.target);
+      if (index >= 0) {
+        playTrack(index);
+      }
+    };
+
+    const handlePointerDown = (e: globalThis.PointerEvent) => {
+      if (!onLongPressTrack) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      const index = resolveRowIndex(e.target);
+      if (index < 0) return;
+
+      clearLongPressTimer();
+      longPressOriginRef.current = { x: e.clientX, y: e.clientY };
+      longPressTimerRef.current = window.setTimeout(() => {
+        longPressTimerRef.current = null;
+        suppressNextClickRef.current = true;
+        onLongPressTrack(tracksRef.current, index, playlistContextId);
+      }, 480);
+    };
+
+    const handlePointerMove = (e: globalThis.PointerEvent) => {
+      if (!longPressOriginRef.current) return;
+      const dx = e.clientX - longPressOriginRef.current.x;
+      const dy = e.clientY - longPressOriginRef.current.y;
+      if (dx * dx + dy * dy > 64) {
+        clearLongPressTimer();
+      }
+    };
+
+    const handlePointerCancelOrUp = () => {
+      clearLongPressTimer();
+    };
+
+    const handleContextMenu = (e: globalThis.MouseEvent) => {
+      if (!onLongPressTrack) return;
+      const index = resolveRowIndex(e.target);
+      if (index < 0) return;
+      e.preventDefault();
+      clearLongPressTimer();
+      onLongPressTrack(tracksRef.current, index, playlistContextId);
+    };
+
+    trackListContainer.addEventListener('click', handleDelegatedClick);
+    trackListContainer.addEventListener('pointerdown', handlePointerDown);
+    trackListContainer.addEventListener('pointermove', handlePointerMove);
+    trackListContainer.addEventListener('pointerup', handlePointerCancelOrUp);
+    trackListContainer.addEventListener('pointercancel', handlePointerCancelOrUp);
+    trackListContainer.addEventListener('contextmenu', handleContextMenu);
+
+    return () => {
+      clearLongPressTimer();
+      trackListContainer.removeEventListener('click', handleDelegatedClick);
+      trackListContainer.removeEventListener('pointerdown', handlePointerDown);
+      trackListContainer.removeEventListener('pointermove', handlePointerMove);
+      trackListContainer.removeEventListener('pointerup', handlePointerCancelOrUp);
+      trackListContainer.removeEventListener('pointercancel', handlePointerCancelOrUp);
+      trackListContainer.removeEventListener('contextmenu', handleContextMenu);
+    };
+  }, [
+    clearLongPressTimer,
+    onLongPressTrack,
+    playTrack,
+    playlistContextId,
+    resolveRowIndex,
+  ]);
 
   return (
     <div
+      ref={containerRef}
       className="holo-track-list"
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-      onClick={handleClick}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
-          const target = e.target;
-          if (target instanceof Element && !target.closest('[data-row-action="true"]')) {
+          const index = resolveRowIndex(e.target);
+          if (index >= 0) {
             e.preventDefault();
-            playFromTarget(target);
+            playTrack(index);
           }
         }
       }}

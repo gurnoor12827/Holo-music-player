@@ -1,6 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { PlaylistRecord, SortMode, TrackRecord } from '../types/music';
-import { formatTime } from '../utils/audioMetadata';
+import {
+  formatFileSize,
+  formatTime,
+  probeTrackTechMetadata,
+} from '../utils/audioMetadata';
+import {
+  HoloCloseIcon,
+  HoloImageEditIcon,
+  HoloMusicNoteIcon,
+  HoloPlayIcon,
+  HoloPlaylistAddIcon,
+  HoloTrashIcon,
+  HoloVinylIcon,
+} from './HoloIcons';
 
 interface SortDialogProps {
   isOpen: boolean;
@@ -425,6 +438,344 @@ export function HoloPlaylistPickerDialog({
             style={{ borderRadius: 0 }}
           >
             Done ({playlist.trackIds.length} selected)
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface TrackMetadataDialogProps {
+  track: TrackRecord | null;
+  isArtworkBroken?: boolean;
+  onEditArtwork: (track: TrackRecord) => void;
+  onClose: () => void;
+}
+
+export function HoloTrackMetadataDialog({
+  track,
+  isArtworkBroken = false,
+  onEditArtwork,
+  onClose,
+}: TrackMetadataDialogProps) {
+  const [probed, setProbed] = useState<{
+    audioFormat?: string;
+    bitrateKbps?: number;
+    sampleRateHz?: number;
+    channels?: number;
+    filePath?: string;
+  } | null>(null);
+  const [probing, setProbing] = useState(false);
+
+  useEffect(() => {
+    if (!track) {
+      setProbed(null);
+      return;
+    }
+    let cancelled = false;
+    setProbed({
+      audioFormat: track.audioFormat,
+      bitrateKbps: track.bitrateKbps,
+      sampleRateHz: track.sampleRateHz,
+      channels: track.channels,
+      filePath: track.filePath,
+    });
+
+    if (
+      !track.bitrateKbps ||
+      !track.sampleRateHz ||
+      !track.audioFormat ||
+      !track.filePath
+    ) {
+      setProbing(true);
+      void probeTrackTechMetadata(track).then((tech) => {
+        if (!cancelled) {
+          setProbed(tech);
+          setProbing(false);
+        }
+      });
+    } else {
+      setProbing(false);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [track]);
+
+  if (!track) return null;
+
+  const hasValidArt = Boolean(track.artworkDataUrl) && !isArtworkBroken;
+  const channelsLabel =
+    probed?.channels === 1
+      ? 'Mono (1 ch)'
+      : probed?.channels === 2
+      ? 'Stereo (2 ch)'
+      : probed?.channels
+      ? `${probed.channels} channels`
+      : 'Stereo / Auto';
+
+  const rows: { label: string; value: string; mono?: boolean }[] = [
+    { label: 'Title', value: track.title },
+    { label: 'Artist', value: track.artist },
+    { label: 'Album', value: track.album || 'Local Library' },
+    {
+      label: 'Format',
+      value: probed?.audioFormat || track.mimeType || 'Audio Stream',
+    },
+    {
+      label: 'Bitrate',
+      value: probed?.bitrateKbps
+        ? `${probed.bitrateKbps} kbps`
+        : probing
+        ? 'Inspecting...'
+        : 'Variable / Container',
+      mono: true,
+    },
+    {
+      label: 'Sample Rate',
+      value: probed?.sampleRateHz
+        ? `${probed.sampleRateHz.toLocaleString()} Hz (${(
+            probed.sampleRateHz / 1000
+          ).toFixed(1)} kHz)`
+        : probing
+        ? 'Inspecting...'
+        : 'Native Device Rate',
+      mono: true,
+    },
+    { label: 'Channels', value: channelsLabel },
+    { label: 'Duration', value: formatTime(track.durationSec), mono: true },
+    { label: 'File Size', value: formatFileSize(track.fileSize), mono: true },
+    { label: 'File Path', value: probed?.filePath || track.fileName, mono: true },
+  ];
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: 'var(--surface-overlay)' }}
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="ID3 Track Metadata Inspector"
+    >
+      <div
+        className="holo-dialog-surface flex max-h-[84dvh] w-full max-w-md flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="flex items-center justify-between gap-3 px-5 py-3.5"
+          style={{ borderBottom: '2px solid var(--accent)' }}
+        >
+          <h2 className="text-base font-semibold text-[var(--accent)]">
+            ID3 Metadata Inspector
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close metadata inspector"
+            className="flex h-8 w-8 items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          >
+            <HoloCloseIcon className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="holo-scroll flex-1 overflow-y-auto px-5 py-4">
+          <div className="mb-4 flex items-center gap-3.5 border-b border-[var(--divider)] pb-4">
+            <div
+              className={`theme-artwork-box flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden ${
+                hasValidArt ? '' : 'theme-artwork-fallback'
+              }`}
+            >
+              {hasValidArt && track.artworkDataUrl ? (
+                <img
+                  src={track.artworkDataUrl}
+                  alt={`${track.album} cover`}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <HoloVinylIcon className="h-9 w-9 text-[var(--accent)]" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-semibold text-[var(--text-primary)]">
+                {track.title}
+              </div>
+              <div className="mt-0.5 truncate text-xs text-[var(--accent)]">
+                {track.artist}
+              </div>
+              <div className="mt-0.5 truncate text-[11px] text-[var(--text-secondary)]">
+                {track.album}
+              </div>
+            </div>
+          </div>
+
+          <dl className="divide-y divide-[var(--divider)]">
+            {rows.map((row) => (
+              <div
+                key={row.label}
+                className="flex flex-col gap-0.5 py-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4"
+              >
+                <dt className="shrink-0 text-[11px] font-bold uppercase tracking-wider text-[var(--text-dim)]">
+                  {row.label}
+                </dt>
+                <dd
+                  className={`break-all text-xs text-[var(--text-primary)] sm:text-right ${
+                    row.mono ? 'font-mono tabular-nums' : ''
+                  }`}
+                >
+                  {row.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+
+        <div className="grid grid-cols-2 border-t border-[var(--divider)]">
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onEditArtwork(track);
+            }}
+            className="holo-btn min-h-[44px] border-0 border-r border-[var(--divider)] py-3 text-sm font-medium text-[var(--accent)]"
+            style={{ borderRadius: 0 }}
+          >
+            Edit Cover Art
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="holo-btn-primary min-h-[44px] border-0 py-3 text-sm font-semibold"
+            style={{ borderRadius: 0 }}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface TrackContextMenuProps {
+  track: TrackRecord | null;
+  playlistContextId?: string;
+  onPlayNow: () => void;
+  onAddToPlaylist: (track: TrackRecord) => void;
+  onInspectMetadata: (track: TrackRecord) => void;
+  onEditArtwork: (track: TrackRecord) => void;
+  onRemove: () => void;
+  onClose: () => void;
+}
+
+export function HoloTrackContextMenu({
+  track,
+  playlistContextId,
+  onPlayNow,
+  onAddToPlaylist,
+  onInspectMetadata,
+  onEditArtwork,
+  onRemove,
+  onClose,
+}: TrackContextMenuProps) {
+  if (!track) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center sm:p-4"
+      style={{ backgroundColor: 'var(--surface-overlay)' }}
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Track actions for ${track.title}`}
+    >
+      <div
+        className="holo-dialog-surface w-full max-w-sm overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="px-5 py-3.5"
+          style={{ borderBottom: '2px solid var(--accent)' }}
+        >
+          <h2 className="truncate text-base font-semibold text-[var(--accent)]">
+            {track.title}
+          </h2>
+          <p className="mt-0.5 truncate text-xs text-[var(--text-secondary)]">
+            {track.artist} · {formatTime(track.durationSec)}
+          </p>
+        </div>
+
+        <div className="divide-y divide-[var(--divider)]">
+          <button
+            type="button"
+            onClick={() => {
+              onPlayNow();
+              onClose();
+            }}
+            className="flex min-h-[48px] w-full items-center gap-3 px-5 py-3 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--surface-row-hover)]"
+          >
+            <HoloPlayIcon className="h-4 w-4 shrink-0 text-[var(--accent)]" />
+            <span>Play Track</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onAddToPlaylist(track);
+            }}
+            className="flex min-h-[48px] w-full items-center gap-3 px-5 py-3 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--surface-row-hover)]"
+          >
+            <HoloPlaylistAddIcon className="h-4 w-4 shrink-0 text-[var(--accent)]" />
+            <span>Add to Playlist / New Playlist</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onInspectMetadata(track);
+            }}
+            className="flex min-h-[48px] w-full items-center gap-3 px-5 py-3 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--surface-row-hover)]"
+          >
+            <HoloMusicNoteIcon className="h-4 w-4 shrink-0 text-[var(--accent)]" />
+            <span>Inspect ID3 Metadata</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onEditArtwork(track);
+            }}
+            className="flex min-h-[48px] w-full items-center gap-3 px-5 py-3 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--surface-row-hover)]"
+          >
+            <HoloImageEditIcon className="h-4 w-4 shrink-0 text-[var(--accent)]" />
+            <span>Edit Cover Art</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onRemove();
+              onClose();
+            }}
+            className="flex min-h-[48px] w-full items-center gap-3 px-5 py-3 text-left text-sm text-[var(--danger-text)] hover:bg-[var(--surface-row-hover)]"
+          >
+            <HoloTrashIcon className="h-4 w-4 shrink-0" />
+            <span>
+              {playlistContextId ? 'Remove from Playlist' : 'Remove from Library'}
+            </span>
+          </button>
+        </div>
+
+        <div className="border-t border-[var(--divider)]">
+          <button
+            type="button"
+            onClick={onClose}
+            className="holo-btn min-h-[44px] w-full border-0 py-3 text-center text-sm font-medium"
+            style={{ borderRadius: 0 }}
+          >
+            Cancel
           </button>
         </div>
       </div>

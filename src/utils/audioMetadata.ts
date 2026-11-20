@@ -82,22 +82,54 @@ function decodeTextByEncoding(bytes: Uint8Array, encoding: number): string {
   }
 }
 
+function sniffImageMime(imageBytes: Uint8Array, declaredMime: string): string {
+  if (imageBytes.length >= 4) {
+    if (
+      imageBytes[0] === 0x89 &&
+      imageBytes[1] === 0x50 &&
+      imageBytes[2] === 0x4e &&
+      imageBytes[3] === 0x47
+    ) {
+      return 'image/png';
+    }
+    if (imageBytes[0] === 0xff && imageBytes[1] === 0xd8) {
+      return 'image/jpeg';
+    }
+    if (
+      imageBytes[0] === 0x47 &&
+      imageBytes[1] === 0x49 &&
+      imageBytes[2] === 0x46 &&
+      imageBytes[3] === 0x38
+    ) {
+      return 'image/gif';
+    }
+    if (
+      imageBytes.length >= 12 &&
+      imageBytes[0] === 0x52 &&
+      imageBytes[1] === 0x49 &&
+      imageBytes[2] === 0x46 &&
+      imageBytes[3] === 0x46 &&
+      imageBytes[8] === 0x57 &&
+      imageBytes[9] === 0x45 &&
+      imageBytes[10] === 0x42 &&
+      imageBytes[11] === 0x50
+    ) {
+      return 'image/webp';
+    }
+  }
+  const normalized = declaredMime.toLowerCase().trim();
+  if (normalized === 'image/jpg') return 'image/jpeg';
+  if (normalized.startsWith('image/')) return normalized;
+  return 'image/jpeg';
+}
+
 function bytesToDataUrl(imageBytes: Uint8Array, mimeType: string): string | null {
   if (imageBytes.length === 0 || imageBytes.length > MAX_ARTWORK_BYTES) {
     return null;
   }
-  let resolvedMime = mimeType.toLowerCase().trim();
-  if (!resolvedMime.startsWith('image/')) {
-    if (imageBytes[0] === 0x89 && imageBytes[1] === 0x50) {
-      resolvedMime = 'image/png';
-    } else if (imageBytes[0] === 0xff && imageBytes[1] === 0xd8) {
-      resolvedMime = 'image/jpeg';
-    } else {
-      resolvedMime = 'image/jpeg';
-    }
-  }
+  const resolvedMime = sniffImageMime(imageBytes, mimeType);
   let binary = '';
-  const chunkSize = 0x8000;
+  const chunkSize = 0x4000;
   for (let i = 0; i < imageBytes.length; i += chunkSize) {
     const chunk = imageBytes.subarray(i, Math.min(i + chunkSize, imageBytes.length));
     binary += String.fromCharCode(...chunk);
@@ -190,6 +222,9 @@ function parseId3Artwork(payload: Uint8Array, isLegacyPic: boolean): string | nu
       endMime++;
     }
     mime = decodeAscii(payload, cursor, endMime - cursor) || 'image/jpeg';
+    if (mime.trim() === '-->') {
+      return null;
+    }
     cursor = endMime + 1;
   }
 
@@ -471,6 +506,207 @@ function probeDurationSeconds(file: Blob): Promise<number> {
   });
 }
 
+export interface AudioTechDetails {
+  audioFormat: string;
+  bitrateKbps?: number;
+  sampleRateHz?: number;
+  channels?: number;
+  filePath: string;
+}
+
+function readUint16LE(bytes: Uint8Array, offset: number): number {
+  return bytes[offset] | (bytes[offset + 1] << 8);
+}
+
+function parseMp3FrameHeader(
+  bytes: Uint8Array,
+  startOffset: number
+): { bitrateKbps?: number; sampleRateHz?: number; channels?: number } {
+  const mp3RatesV1 = [44100, 48000, 32000];
+  const mp3RatesV2 = [22050, 24000, 16000];
+  const mp3RatesV25 = [11025, 12000, 8000];
+  const brV1L3 = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0];
+  const brV2L3 = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0];
+
+  const limit = Math.min(bytes.length - 4, startOffset + 65536);
+  for (let i = Math.max(0, startOffset); i < limit; i++) {
+    if (bytes[i] !== 0xff || (bytes[i + 1] & 0xe0) !== 0xe0) continue;
+    const versionBits = (bytes[i + 1] >> 3) & 0x03;
+    const layerBits = (bytes[i + 1] >> 1) & 0x03;
+    const brIndex = (bytes[i + 2] >> 4) & 0x0f;
+    const srIndex = (bytes[i + 2] >> 2) & 0x03;
+    const channelMode = (bytes[i + 3] >> 6) & 0x03;
+
+    if (versionBits === 1 || layerBits === 0 || brIndex === 0 || brIndex === 15 || srIndex === 3) {
+      continue;
+    }
+
+    let sampleRateHz = 44100;
+    if (versionBits === 3) sampleRateHz = mp3RatesV1[srIndex];
+    else if (versionBits === 2) sampleRateHz = mp3RatesV2[srIndex];
+    else sampleRateHz = mp3RatesV25[srIndex];
+
+    const bitrateKbps = versionBits === 3 ? brV1L3[brIndex] : brV2L3[brIndex];
+    const channels = channelMode === 3 ? 1 : 2;
+    if (sampleRateHz && bitrateKbps) {
+      return { bitrateKbps, sampleRateHz, channels };
+    }
+  }
+  return {};
+}
+
+function parseMp4AudioInfo(bytes: Uint8Array): { sampleRateHz?: number; channels?: number } {
+  const limit = Math.min(bytes.length - 28, 524288);
+  for (let i = 0; i < limit; i++) {
+    if (
+      bytes[i] === 0x6d &&
+      bytes[i + 1] === 0x70 &&
+      bytes[i + 2] === 0x34 &&
+      bytes[i + 3] === 0x61
+    ) {
+      const channels = (bytes[i + 20] << 8) | bytes[i + 21];
+      const srFixed = ((bytes[i + 28] << 8) | bytes[i + 29]) >>> 0;
+      if (srFixed >= 8000 && srFixed <= 192000) {
+        return {
+          sampleRateHz: srFixed,
+          channels: channels > 0 && channels <= 8 ? channels : 2,
+        };
+      }
+    }
+  }
+  return {};
+}
+
+export function extractAudioTechMetadata(
+  headBytes: Uint8Array,
+  fileName: string,
+  fileSize: number,
+  mimeType: string,
+  durationSec: number,
+  filePath?: string
+): AudioTechDetails {
+  const resolvedPath = filePath && filePath.trim() ? filePath : fileName;
+  let audioFormat = inferFormatLabel(fileName, mimeType);
+  let sampleRateHz: number | undefined;
+  let bitrateKbps: number | undefined;
+  let channels: number | undefined;
+
+  if (
+    headBytes.length >= 10 &&
+    headBytes[0] === 0x49 &&
+    headBytes[1] === 0x44 &&
+    headBytes[2] === 0x33
+  ) {
+    const id3Rev = `ID3v2.${headBytes[3]}`;
+    audioFormat = `MP3 (${id3Rev})`;
+    const tagSize = readSynchsafeInt(headBytes, 6);
+    const frameStart = 10 + tagSize;
+    const mp3 = parseMp3FrameHeader(headBytes, frameStart < headBytes.length ? frameStart : 10);
+    sampleRateHz = mp3.sampleRateHz;
+    bitrateKbps = mp3.bitrateKbps;
+    channels = mp3.channels;
+  } else if (headBytes.length >= 42 && decodeAscii(headBytes, 0, 4) === 'fLaC') {
+    audioFormat = 'FLAC Lossless';
+    if ((headBytes[4] & 0x7f) === 0) {
+      const sr =
+        (headBytes[18] << 12) | (headBytes[19] << 4) | ((headBytes[20] & 0xf0) >> 4);
+      if (sr >= 8000 && sr <= 384000) {
+        sampleRateHz = sr;
+      }
+      channels = ((headBytes[20] >> 1) & 0x07) + 1;
+    }
+  } else if (
+    headBytes.length >= 44 &&
+    decodeAscii(headBytes, 0, 4) === 'RIFF' &&
+    decodeAscii(headBytes, 8, 4) === 'WAVE'
+  ) {
+    audioFormat = 'WAV (PCM)';
+    let cursor = 12;
+    while (cursor + 8 <= headBytes.length) {
+      const id = decodeAscii(headBytes, cursor, 4);
+      const size = readUint32LE(headBytes, cursor + 4);
+      cursor += 8;
+      if (cursor + size > headBytes.length) break;
+      if (id === 'fmt ' && size >= 16) {
+        channels = readUint16LE(headBytes, cursor + 2);
+        sampleRateHz = readUint32LE(headBytes, cursor + 4);
+        const byteRate = readUint32LE(headBytes, cursor + 8);
+        if (byteRate > 0) {
+          bitrateKbps = Math.round((byteRate * 8) / 1000);
+        }
+        break;
+      }
+      cursor += size + (size % 2);
+    }
+  } else if (headBytes.length >= 12 && decodeAscii(headBytes, 4, 4) === 'ftyp') {
+    audioFormat = 'AAC / MP4 Container';
+    const mp4 = parseMp4AudioInfo(headBytes);
+    sampleRateHz = mp4.sampleRateHz;
+    channels = mp4.channels;
+  } else if (headBytes.length >= 44 && decodeAscii(headBytes, 0, 4) === 'OggS') {
+    audioFormat = 'OGG Vorbis / Opus';
+    for (let i = 0; i < Math.min(headBytes.length - 16, 512); i++) {
+      if (
+        headBytes[i] === 0x76 &&
+        headBytes[i + 1] === 0x6f &&
+        headBytes[i + 2] === 0x72 &&
+        headBytes[i + 3] === 0x62 &&
+        headBytes[i + 4] === 0x69 &&
+        headBytes[i + 5] === 0x73 &&
+        i + 16 < headBytes.length
+      ) {
+        channels = headBytes[i + 10];
+        sampleRateHz = readUint32LE(headBytes, i + 11);
+        break;
+      }
+    }
+  } else if (headBytes.length >= 4 && headBytes[0] === 0xff && (headBytes[1] & 0xe0) === 0xe0) {
+    audioFormat = 'MP3 (MPEG Audio)';
+    const mp3 = parseMp3FrameHeader(headBytes, 0);
+    sampleRateHz = mp3.sampleRateHz;
+    bitrateKbps = mp3.bitrateKbps;
+    channels = mp3.channels;
+  }
+
+  if ((!bitrateKbps || audioFormat.includes('FLAC') || audioFormat.includes('AAC')) && durationSec > 0.5 && fileSize > 0) {
+    const avgKbps = Math.round((fileSize * 8) / (durationSec * 1000));
+    if (avgKbps > 8 && avgKbps < 10000) {
+      bitrateKbps = bitrateKbps ?? avgKbps;
+    }
+  }
+
+  return {
+    audioFormat,
+    bitrateKbps,
+    sampleRateHz,
+    channels,
+    filePath: resolvedPath,
+  };
+}
+
+export async function probeTrackTechMetadata(track: TrackRecord): Promise<AudioTechDetails> {
+  if (track.audioFormat && track.bitrateKbps && track.sampleRateHz && track.filePath) {
+    return {
+      audioFormat: track.audioFormat,
+      bitrateKbps: track.bitrateKbps,
+      sampleRateHz: track.sampleRateHz,
+      channels: track.channels,
+      filePath: track.filePath,
+    };
+  }
+  const headSlice = await track.blob
+    .slice(0, Math.min(track.blob.size, 524288))
+    .arrayBuffer();
+  return extractAudioTechMetadata(
+    new Uint8Array(headSlice),
+    track.fileName,
+    track.fileSize,
+    track.mimeType,
+    track.durationSec,
+    track.filePath || track.fileName
+  );
+}
+
 export async function parseAudioFile(file: File): Promise<TrackRecord> {
   const headSlice = await file.slice(0, Math.min(file.size, MAX_HEADER_SLICE)).arrayBuffer();
   const headBytes = new Uint8Array(headSlice);
@@ -501,6 +737,16 @@ export async function parseAudioFile(file: File): Promise<TrackRecord> {
 
   const id = `${file.name}::${file.size}::${file.lastModified}`;
   const mimeType = file.type || inferMimeFromExtension(file.name);
+  const relPath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
+  const filePath = relPath && relPath.trim() ? relPath : file.name;
+  const tech = extractAudioTechMetadata(
+    headBytes,
+    file.name,
+    file.size,
+    mimeType,
+    durationSec,
+    filePath
+  );
 
   return {
     id,
@@ -509,12 +755,29 @@ export async function parseAudioFile(file: File): Promise<TrackRecord> {
     album: parsed.album || 'Local Library',
     durationSec,
     fileName: file.name,
+    filePath: tech.filePath,
     fileSize: file.size,
     mimeType,
+    audioFormat: tech.audioFormat,
+    bitrateKbps: tech.bitrateKbps,
+    sampleRateHz: tech.sampleRateHz,
+    channels: tech.channels,
     artworkDataUrl: parsed.artworkDataUrl || null,
     addedAt: Date.now(),
     blob: file,
   };
+}
+
+function inferFormatLabel(fileName: string, mimeType: string): string {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith('.mp3') || mimeType === 'audio/mpeg') return 'MP3 (MPEG Audio)';
+  if (lower.endsWith('.flac') || mimeType === 'audio/flac') return 'FLAC Lossless';
+  if (lower.endsWith('.wav') || mimeType === 'audio/wav') return 'WAV (PCM)';
+  if (lower.endsWith('.m4a') || lower.endsWith('.aac') || mimeType === 'audio/mp4') {
+    return 'AAC / M4A';
+  }
+  if (lower.endsWith('.ogg') || lower.endsWith('.opus')) return 'OGG Audio';
+  return mimeType || 'Local Audio';
 }
 
 function inferMimeFromExtension(fileName: string): string {
@@ -542,4 +805,11 @@ export function formatTime(seconds: number): string {
     return `${hrs}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   }
   return `${mins}:${String(secs).padStart(2, '0')}`;
+}
+
+export function formatFileSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }

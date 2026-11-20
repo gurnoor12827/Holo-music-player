@@ -21,7 +21,7 @@
     <string name="holo_empty_message">Grant audio storage access or place MP3, M4A, WAV, or FLAC music files on your device.</string>
     <string name="holo_btn_scan">SCAN LOCAL AUDIO</string>
     <string name="holo_idle_title">Select a track to play</string>
-    <string name="holo_idle_artist">Holo Player v0.3-alpha</string>
+    <string name="holo_idle_artist">Holo Player v1.0</string>
     <string name="holo_zero_time">0:00</string>
     <string name="holo_cd_previous">Previous track</string>
     <string name="holo_cd_play_pause">Play or pause</string>
@@ -47,8 +47,9 @@
     <string name="settings_crossfade_prefix">Crossfade: </string>
     <string name="settings_reverb_prefix">Reverb: </string>
     <string name="settings_visualizer_prefix">Visualizer: </string>
+    <string name="settings_sleep_prefix">Sleep Timer: </string>
     <string name="settings_section_about">ABOUT</string>
-    <string name="settings_version_label">Holo Player  ·  v0.3-alpha</string>
+    <string name="settings_version_label">Holo Player  ·  v1.0</string>
 
     <!-- Base application theme inheriting directly from @android:style/Theme.Holo -->
     <style name="AppTheme" parent="@android:style/Theme.Holo">

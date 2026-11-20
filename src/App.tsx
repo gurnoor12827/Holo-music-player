@@ -5,6 +5,8 @@ import {
   HoloCreatePlaylistDialog,
   HoloPlaylistPickerDialog,
   HoloSortDialog,
+  HoloTrackContextMenu,
+  HoloTrackMetadataDialog,
 } from './components/HoloDialogs';
 import { HoloEqualizerPanel } from './components/HoloEqualizerPanel';
 import {
@@ -26,6 +28,7 @@ import {
 } from './components/HoloIcons';
 import { NowPlayingView } from './components/NowPlayingView';
 import { SettingsView } from './components/SettingsView';
+import { StartupSplash } from './components/StartupSplash';
 import { TrackList } from './components/TrackList';
 import { useHoloAudioPlayer } from './hooks/useHoloAudioPlayer';
 import type {
@@ -94,6 +97,12 @@ export default function App() {
   const [editingArtState, setEditingArtState] = useState<{
     track: TrackRecord;
     isCorrupted: boolean;
+  } | null>(null);
+  const [inspectingMetadataTrack, setInspectingMetadataTrack] = useState<TrackRecord | null>(null);
+  const [contextMenuTrackState, setContextMenuTrackState] = useState<{
+    tracks: TrackRecord[];
+    index: number;
+    playlistContextId?: string;
   } | null>(null);
   const [brokenArtIds, setBrokenArtIds] = useState<Set<string>>(() => new Set());
 
@@ -389,6 +398,13 @@ export default function App() {
       isCorrupted: !track.artworkDataUrl || brokenArtIds.has(track.id),
     });
   };
+
+  const handleLongPressTrack = useCallback(
+    (list: TrackRecord[], index: number, playlistContextId?: string) => {
+      setContextMenuTrackState({ tracks: list, index, playlistContextId });
+    },
+    []
+  );
 
   const handleSaveArtwork = async (
     targetTrack: TrackRecord,
@@ -875,6 +891,7 @@ export default function App() {
                 showListArtwork={settings.showListArtwork}
                 brokenArtIds={brokenArtIds}
                 onPlayTrack={player.playTrackFromList}
+                onLongPressTrack={handleLongPressTrack}
                 onEditArtwork={handleEditTrackArtwork}
                 onAddToPlaylist={setAddToPlaylistTrack}
                 onRemoveFromLibrary={handleRemoveTrackAction}
@@ -915,6 +932,7 @@ export default function App() {
                 showListArtwork={settings.showListArtwork}
                 brokenArtIds={brokenArtIds}
                 onPlayTrack={player.playTrackFromList}
+                onLongPressTrack={handleLongPressTrack}
                 onEditArtwork={handleEditTrackArtwork}
                 onAddToPlaylist={setAddToPlaylistTrack}
                 onRemoveFromLibrary={handleRemoveTrackAction}
@@ -937,11 +955,16 @@ export default function App() {
                   onClick={() => setSelectedArtist(artist.name)}
                   className="holo-list-row flex w-full items-center gap-3 px-4 py-3 text-left"
                 >
-                  <div className="theme-artwork-box flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden">
+                  <div
+                    className={`theme-artwork-box flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden ${
+                      artist.artwork ? '' : 'theme-artwork-fallback'
+                    }`}
+                  >
                     {artist.artwork ? (
                       <img
                         src={artist.artwork}
                         alt={artist.name}
+                        referrerPolicy="no-referrer"
                         onError={() => {
                           const broken = artist.tracks.find(
                             (t) => t.artworkDataUrl === artist.artwork
@@ -951,7 +974,7 @@ export default function App() {
                         className="h-full w-full object-cover"
                       />
                     ) : (
-                      <HoloMusicNoteIcon className="h-5 w-5 text-[var(--accent)]" />
+                      <HoloMusicNoteIcon className="h-5 w-5 text-[var(--accent)] drop-shadow-sm" />
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
@@ -1003,6 +1026,7 @@ export default function App() {
                 showListArtwork={settings.showListArtwork}
                 brokenArtIds={brokenArtIds}
                 onPlayTrack={player.playTrackFromList}
+                onLongPressTrack={handleLongPressTrack}
                 onEditArtwork={handleEditTrackArtwork}
                 onAddToPlaylist={setAddToPlaylistTrack}
                 onRemoveFromLibrary={handleRemoveTrackAction}
@@ -1027,13 +1051,16 @@ export default function App() {
                     className="holo-btn flex flex-col overflow-hidden text-left"
                   >
                     <div
-                      className="flex aspect-square w-full items-center justify-center overflow-hidden border-b border-[var(--divider)]"
-                      style={{ backgroundColor: 'var(--surface-artwork)' }}
+                      className={`flex aspect-square w-full items-center justify-center overflow-hidden border-b border-[var(--divider)] ${
+                        alb.artwork ? '' : 'theme-artwork-fallback'
+                      }`}
+                      style={alb.artwork ? { backgroundColor: 'var(--surface-artwork)' } : undefined}
                     >
                       {alb.artwork ? (
                         <img
                           src={alb.artwork}
                           alt={alb.album}
+                          referrerPolicy="no-referrer"
                           onError={() => {
                             const broken = alb.tracks.find((t) => t.artworkDataUrl === alb.artwork);
                             if (broken) markArtworkCorrupted(broken.id);
@@ -1041,7 +1068,7 @@ export default function App() {
                           className="h-full w-full object-cover"
                         />
                       ) : (
-                        <HoloVinylIcon className="h-14 w-14 text-[var(--accent)]" />
+                        <HoloVinylIcon className="h-14 w-14 text-[var(--accent)] drop-shadow-sm" />
                       )}
                     </div>
                     <div className="p-2.5">
@@ -1122,6 +1149,7 @@ export default function App() {
                 showListArtwork={settings.showListArtwork}
                 brokenArtIds={brokenArtIds}
                 onPlayTrack={player.playTrackFromList}
+                onLongPressTrack={handleLongPressTrack}
                 onEditArtwork={handleEditTrackArtwork}
                 onAddToPlaylist={setAddToPlaylistTrack}
                 onRemoveFromLibrary={handleRemoveTrackAction}
@@ -1184,18 +1212,23 @@ export default function App() {
                         onClick={() => setSelectedPlaylistId(pl.id)}
                         className="flex min-w-0 flex-1 items-center gap-3 text-left"
                       >
-                        <div className="theme-artwork-box flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden">
+                        <div
+                          className={`theme-artwork-box flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden ${
+                            cover ? '' : 'theme-artwork-fallback'
+                          }`}
+                        >
                           {cover ? (
                             <img
                               src={cover}
                               alt={pl.name}
+                              referrerPolicy="no-referrer"
                               onError={() => {
                                 if (coverTrack) markArtworkCorrupted(coverTrack.id);
                               }}
                               className="h-full w-full object-cover"
                             />
                           ) : (
-                            <HoloPlaylistAddIcon className="h-5 w-5 text-[var(--accent)]" />
+                            <HoloPlaylistAddIcon className="h-5 w-5 text-[var(--accent)] drop-shadow-sm" />
                           )}
                         </div>
                         <div className="min-w-0 flex-1">
@@ -1271,12 +1304,19 @@ export default function App() {
             aria-label="Open Now Playing screen"
             className="flex min-w-0 flex-1 items-center gap-3 px-3 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
           >
-            <div className="theme-artwork-box flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden">
+            <div
+              className={`theme-artwork-box flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden ${
+                player.currentTrack?.artworkDataUrl && !brokenArtIds.has(player.currentTrack.id)
+                  ? ''
+                  : 'theme-artwork-fallback'
+              }`}
+            >
               {player.currentTrack?.artworkDataUrl &&
               !brokenArtIds.has(player.currentTrack.id) ? (
                 <img
                   src={player.currentTrack.artworkDataUrl}
                   alt={player.currentTrack.album}
+                  referrerPolicy="no-referrer"
                   onError={() => {
                     if (player.currentTrack) {
                       markArtworkCorrupted(player.currentTrack.id);
@@ -1285,7 +1325,7 @@ export default function App() {
                   className="h-full w-full object-cover"
                 />
               ) : (
-                <HoloVinylIcon className="h-7 w-7 text-[var(--accent)]" />
+                <HoloVinylIcon className="h-7 w-7 text-[var(--accent)] drop-shadow-sm" />
               )}
             </div>
 
@@ -1352,7 +1392,8 @@ export default function App() {
           player.currentTrack ? brokenArtIds.has(player.currentTrack.id) : false
         }
         queuePositionLabel={queuePositionLabel}
-        getAudioMotionTarget={player.getAudioMotionTarget}
+        sleepTimerRemainingSec={player.sleepTimerRemainingSec}
+        getAnalyserNode={player.getAnalyserNode}
         onChangeVisualizerMode={(mode) =>
           handleSettingsChange({ ...settings, visualizerMode: mode })
         }
@@ -1363,6 +1404,7 @@ export default function App() {
         onSeek={player.seekTo}
         onToggleShuffle={player.toggleShuffle}
         onCycleRepeat={player.cycleRepeat}
+        onInspectMetadata={setInspectingMetadataTrack}
         onOpenArtworkEditor={openAlbumArtEditor}
         onMarkArtworkBroken={markArtworkCorrupted}
         onOpenEqualizer={() => {
@@ -1377,6 +1419,9 @@ export default function App() {
         settings={settings}
         trackCount={tracks.length}
         playlistCount={playlists.length}
+        sleepTimerMinutes={player.sleepTimerMinutes}
+        sleepTimerRemainingSec={player.sleepTimerRemainingSec}
+        onSetSleepTimer={player.setSleepTimer}
         onChangeSettings={handleSettingsChange}
         onOpenEqualizer={() => {
           player.ensureWebAudioGraph();
@@ -1437,6 +1482,51 @@ export default function App() {
         }
         onClose={() => setEditingArtState(null)}
       />
+
+      <HoloTrackMetadataDialog
+        track={inspectingMetadataTrack}
+        isArtworkBroken={
+          inspectingMetadataTrack ? brokenArtIds.has(inspectingMetadataTrack.id) : false
+        }
+        onEditArtwork={openAlbumArtEditor}
+        onClose={() => setInspectingMetadataTrack(null)}
+      />
+
+      <HoloTrackContextMenu
+        track={
+          contextMenuTrackState
+            ? contextMenuTrackState.tracks[contextMenuTrackState.index] || null
+            : null
+        }
+        playlistContextId={contextMenuTrackState?.playlistContextId}
+        onPlayNow={() => {
+          if (contextMenuTrackState) {
+            player.playTrackFromList(
+              contextMenuTrackState.tracks,
+              contextMenuTrackState.index
+            );
+          }
+        }}
+        onAddToPlaylist={setAddToPlaylistTrack}
+        onInspectMetadata={setInspectingMetadataTrack}
+        onEditArtwork={openAlbumArtEditor}
+        onRemove={() => {
+          if (!contextMenuTrackState) return;
+          const target = contextMenuTrackState.tracks[contextMenuTrackState.index];
+          if (!target) return;
+          if (contextMenuTrackState.playlistContextId) {
+            handleRemoveFromPlaylistAction(
+              contextMenuTrackState.playlistContextId,
+              target.id
+            );
+          } else {
+            handleRemoveTrackAction(target.id);
+          }
+        }}
+        onClose={() => setContextMenuTrackState(null)}
+      />
+
+      <StartupSplash theme={settings.theme} isIndexing={isLoadingDb} />
     </div>
   );
 }

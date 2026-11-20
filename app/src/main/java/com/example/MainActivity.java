@@ -29,6 +29,8 @@ import android.hardware.SensorManager;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
+import android.media.MediaExtractor;
+import android.media.MediaFormat;
 import android.media.MediaPlayer;
 import android.media.audiofx.EnvironmentalReverb;
 import android.media.audiofx.PresetReverb;
@@ -76,6 +78,7 @@ import android.widget.Toast;
 import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -144,19 +147,24 @@ public class MainActivity extends Activity {
 
     public static final class Song {
         final long id;
+        final long albumId;
         final String title;
         final String artist;
         final String album;
         final long durationMs;
         final long dateAddedSec;
+        final String filePath;
 
-        Song(long id, String title, String artist, String album, long durationMs, long dateAddedSec) {
+        Song(long id, long albumId, String title, String artist, String album,
+             long durationMs, long dateAddedSec, String filePath) {
             this.id = id;
+            this.albumId = albumId;
             this.title = title;
             this.artist = artist;
             this.album = album;
             this.durationMs = durationMs;
             this.dateAddedSec = dateAddedSec;
+            this.filePath = filePath != null ? filePath : "";
         }
     }
 
@@ -174,6 +182,7 @@ public class MainActivity extends Activity {
     private final Set<Long> noArtSongIds = new HashSet<>();
     private final Set<Long> corruptedArtSongIds = new HashSet<>();
     private final Set<Long> customArtSongIds = new HashSet<>();
+    private Bitmap listNotePlaceholderBitmap;
 
     private FrameLayout rootLayout;
     private LinearLayout libraryContainer;
@@ -248,9 +257,12 @@ public class MainActivity extends Activity {
     private Button btnSettingsCrossfade;
     private Button btnSettingsReverb;
     private Button btnSettingsVisualizer;
+    private Button btnSettingsSleep;
     private View dividerSettingsAbout;
     private TextView tvSettingsAboutLabel;
     private TextView tvSettingsVersion;
+    private FrameLayout startupSplashOverlay;
+    private StartupSplashView startupSplashView;
 
     private SongAdapter songAdapter;
     private MediaPlayer mediaPlayer;
@@ -287,6 +299,8 @@ public class MainActivity extends Activity {
     private boolean isSettingsOpen = false;
     private Object backInvokedCallback;
     private boolean isBackCallbackRegistered = false;
+    private long startupShownAtMs = 0L;
+    private boolean isStartupSplashDismissed = false;
 
     private long crossfadeStartMs = 0L;
     private long crossfadeDurationMs = 0L;
@@ -300,6 +314,9 @@ public class MainActivity extends Activity {
     private int crossfadeSeconds = 0;
     private int reverbPresetIndex = 0;
     private int visualizerMode = AudioVisualizerView.MODE_LED_BARS;
+    private int sleepTimerMinutes = 0;
+    private long sleepTimerDeadlineMs = 0L;
+    private float sleepFadeMultiplier = 1.0f;
 
     private int activeTab = TAB_ALL_SONGS;
     private int currentSortMode = SORT_TITLE_ASC;
@@ -345,6 +362,50 @@ public class MainActivity extends Activity {
                 }
             } else {
                 uiHandler.postDelayed(this, 50L);
+            }
+        }
+    };
+
+    private final Runnable sleepTimerRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (sleepTimerDeadlineMs <= 0L) {
+                return;
+            }
+            long remainingMs = sleepTimerDeadlineMs - SystemClock.uptimeMillis();
+            if (remainingMs <= 0L) {
+                sleepTimerMinutes = 0;
+                sleepTimerDeadlineMs = 0L;
+                sleepFadeMultiplier = 1.0f;
+                pausePlayback();
+                if (mediaPlayer != null && isMediaPrepared) {
+                    try {
+                        mediaPlayer.setVolume(1.0f, 1.0f);
+                    } catch (IllegalStateException ignored) {
+                    }
+                }
+                updateAudioEffectsButtonLabels();
+                updateQueueCounterText();
+                Toast.makeText(MainActivity.this, "Sleep timer paused playback.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            if (remainingMs <= 6000L) {
+                sleepFadeMultiplier = Math.max(0f, (float) remainingMs / 6000f);
+                if (mediaPlayer != null && isMediaPrepared && isPlayingSafe()) {
+                    try {
+                        mediaPlayer.setVolume(sleepFadeMultiplier, sleepFadeMultiplier);
+                    } catch (IllegalStateException ignored) {
+                    }
+                }
+                updateAudioEffectsButtonLabels();
+                updateQueueCounterText();
+                uiHandler.postDelayed(this, 200L);
+            } else {
+                sleepFadeMultiplier = 1.0f;
+                updateAudioEffectsButtonLabels();
+                updateQueueCounterText();
+                uiHandler.postDelayed(this, 1000L);
             }
         }
     };
@@ -561,9 +622,26 @@ public class MainActivity extends Activity {
         btnSettingsCrossfade = findViewById(R.id.btn_settings_crossfade);
         btnSettingsReverb = findViewById(R.id.btn_settings_reverb);
         btnSettingsVisualizer = findViewById(R.id.btn_settings_visualizer);
+        btnSettingsSleep = findViewById(R.id.btn_settings_sleep);
         dividerSettingsAbout = findViewById(R.id.divider_settings_about);
         tvSettingsAboutLabel = findViewById(R.id.tv_settings_about_label);
         tvSettingsVersion = findViewById(R.id.tv_settings_version);
+        startupSplashOverlay = findViewById(R.id.startup_splash_overlay);
+        startupSplashView = findViewById(R.id.startup_splash_view);
+
+        startupShownAtMs = SystemClock.uptimeMillis();
+        if (startupSplashOverlay != null && !isStartupSplashDismissed) {
+            startupSplashOverlay.setVisibility(View.VISIBLE);
+            startupSplashOverlay.setAlpha(1f);
+            ActionBar initialAb = getActionBar();
+            if (initialAb != null) {
+                initialAb.hide();
+            }
+            if (startupSplashView != null) {
+                startupSplashView.setThemeTint(currentTheme);
+                startupSplashView.startAnimationLoop();
+            }
+        }
 
         tvNowPlayingTitle.setSelected(true);
         tvNpTitle.setSelected(true);
@@ -585,18 +663,34 @@ public class MainActivity extends Activity {
         listSongs.setAdapter(songAdapter);
     }
 
+    private int getControlCornerDp(ThemeConfig theme) {
+        if (theme.id == ThemeConfig.THEME_HOLO) {
+            return 2;
+        }
+        return theme.id == ThemeConfig.THEME_AERO ? 22 : 6;
+    }
+
     private void applyTheme(ThemeConfig theme) {
         currentTheme = theme;
-        int radius = theme.id == ThemeConfig.THEME_HOLO ? 2 : (theme.id == ThemeConfig.THEME_AERO ? 8 : 6);
+        int radius = getControlCornerDp(theme);
+        listNotePlaceholderBitmap = ThemeConfig.createMusicNotePlaceholderBitmap(
+                theme, ThemeConfig.dp(this, 40));
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            getWindow().setStatusBarColor(theme.actionBarTop);
-            getWindow().setNavigationBarColor(theme.dockBottom);
+            if (!isStartupSplashDismissed) {
+                getWindow().setStatusBarColor(0xFF000000);
+                getWindow().setNavigationBarColor(0xFF000000);
+            } else {
+                getWindow().setStatusBarColor(theme.actionBarTop);
+                getWindow().setNavigationBarColor(theme.dockBottom);
+            }
+        }
+        if (startupSplashView != null) {
+            startupSplashView.setThemeTint(theme);
         }
 
-        Drawable mainBg = ThemeConfig.createVerticalSurface(theme.bgTop, theme.bgBottom, 0, 0, 0);
-        rootLayout.setBackground(mainBg);
-        libraryContainer.setBackground(ThemeConfig.createVerticalSurface(theme.bgTop, theme.bgBottom, 0, 0, 0));
+        rootLayout.setBackground(ThemeConfig.createBackdropDrawable(theme));
+        libraryContainer.setBackground(ThemeConfig.createBackdropDrawable(theme));
 
         ActionBar actionBar = getActionBar();
         if (actionBar != null) {
@@ -635,14 +729,14 @@ public class MainActivity extends Activity {
         ThemeConfig.tintButton(btnNext, theme.textPrimary);
 
         // Full-Screen Now Playing
-        nowPlayingScreen.setBackground(ThemeConfig.createVerticalSurface(theme.bgTop, theme.bgBottom, 0, 0, 0));
+        nowPlayingScreen.setBackground(ThemeConfig.createBackdropDrawable(theme));
         npHeaderBar.setBackground(ThemeConfig.createVerticalSurface(theme.dockTop, theme.dockBottom, 0, 0, 0));
         dividerNpTop.setBackgroundColor(theme.dividerColor);
         dividerNpBottom.setBackgroundColor(theme.dividerColor);
         npTransportBar.setBackground(ThemeConfig.createVerticalSurface(theme.dockTop, theme.dockBottom, 0, 0, 0));
         npArtFrame.setBackground(ThemeConfig.createVerticalSurface(
                 theme.buttonTop, theme.buttonBottom,
-                theme.id == ThemeConfig.THEME_HOLO ? 0 : ThemeConfig.dp(this, 6),
+                theme.id == ThemeConfig.THEME_HOLO ? 0 : ThemeConfig.dp(this, 10),
                 ThemeConfig.dp(this, 1),
                 theme.dividerColor));
 
@@ -667,7 +761,7 @@ public class MainActivity extends Activity {
         updateShuffleRepeatButtons();
 
         // Settings screen
-        settingsScreen.setBackground(ThemeConfig.createVerticalSurface(theme.bgTop, theme.bgBottom, 0, 0, 0));
+        settingsScreen.setBackground(ThemeConfig.createBackdropDrawable(theme));
         settingsHeaderBar.setBackground(ThemeConfig.createVerticalSurface(theme.dockTop, theme.dockBottom, 0, 0, 0));
         dividerSettingsTop.setBackgroundColor(theme.dividerColor);
         dividerSettingsMid.setBackgroundColor(theme.dividerColor);
@@ -694,6 +788,8 @@ public class MainActivity extends Activity {
         btnSettingsReverb.setTextColor(theme.textPrimary);
         btnSettingsVisualizer.setBackground(ThemeConfig.createControlSurface(this, theme, false, radius));
         btnSettingsVisualizer.setTextColor(theme.textPrimary);
+        btnSettingsSleep.setBackground(ThemeConfig.createControlSurface(this, theme, false, radius));
+        btnSettingsSleep.setTextColor(theme.textPrimary);
         dividerSettingsAbout.setBackgroundColor(theme.dividerColor);
         tvSettingsAboutLabel.setTextColor(theme.accent);
         tvSettingsVersion.setTextColor(theme.textPrimary);
@@ -742,7 +838,7 @@ public class MainActivity extends Activity {
             audioVisualizer.setVisibility(showVisualizer ? View.VISIBLE : View.GONE);
         }
 
-        int radius = currentTheme.id == ThemeConfig.THEME_HOLO ? 2 : (currentTheme.id == ThemeConfig.THEME_AERO ? 8 : 6);
+        int radius = getControlCornerDp(currentTheme);
         styleNowPlayingCornerSettingsButton(currentTheme, radius);
         long pos = 0L;
         if (mediaPlayer != null && isMediaPrepared) {
@@ -777,6 +873,14 @@ public class MainActivity extends Activity {
             btnSettingsVisualizer.setText(getString(R.string.settings_visualizer_prefix)
                     + AudioVisualizerView.MODE_LABELS[visualizerMode]);
         }
+        if (btnSettingsSleep != null) {
+            if (sleepTimerDeadlineMs > 0L) {
+                long rem = Math.max(0L, sleepTimerDeadlineMs - SystemClock.uptimeMillis());
+                btnSettingsSleep.setText(getString(R.string.settings_sleep_prefix) + formatDuration(rem));
+            } else {
+                btnSettingsSleep.setText(getString(R.string.settings_sleep_prefix) + "Off");
+            }
+        }
     }
 
     private void updateActionBarLabels() {
@@ -810,10 +914,14 @@ public class MainActivity extends Activity {
         if (tvNpQueuePos == null) {
             return;
         }
-        if (playbackQueue.isEmpty() || currentPlaylistIndex < 0) {
-            tvNpQueuePos.setText("-- / --");
+        String base = (playbackQueue.isEmpty() || currentPlaylistIndex < 0)
+                ? "-- / --"
+                : (currentPlaylistIndex + 1) + " / " + playbackQueue.size();
+        if (sleepTimerDeadlineMs > 0L) {
+            long rem = Math.max(0L, sleepTimerDeadlineMs - SystemClock.uptimeMillis());
+            tvNpQueuePos.setText(base + "  ·  Sleep " + formatDuration(rem));
         } else {
-            tvNpQueuePos.setText((currentPlaylistIndex + 1) + " / " + playbackQueue.size());
+            tvNpQueuePos.setText(base);
         }
     }
 
@@ -999,7 +1107,22 @@ public class MainActivity extends Activity {
             }
         });
 
-        View.OnClickListener editCurrentArtClick = new View.OnClickListener() {
+        ivNpArtwork.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Song current = findSongById(currentSongId);
+                if (current != null) {
+                    showTrackMetadataDialog(current);
+                } else if (!displayedSongs.isEmpty()) {
+                    showTrackMetadataDialog(displayedSongs.get(0));
+                } else {
+                    Toast.makeText(MainActivity.this,
+                            "Scan or select a song first to inspect ID3 metadata.",
+                            Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
+        btnNpEditArt.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 Song current = findSongById(currentSongId);
@@ -1013,9 +1136,7 @@ public class MainActivity extends Activity {
                             Toast.LENGTH_SHORT).show();
                 }
             }
-        };
-        ivNpArtwork.setOnClickListener(editCurrentArtClick);
-        btnNpEditArt.setOnClickListener(editCurrentArtClick);
+        });
 
         View.OnClickListener playPauseClick = new View.OnClickListener() {
             @Override
@@ -1194,6 +1315,13 @@ public class MainActivity extends Activity {
             }
         });
 
+        btnSettingsSleep.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showSleepTimerDialog();
+            }
+        });
+
         btnEmptyAction.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -1287,6 +1415,57 @@ public class MainActivity extends Activity {
         builder.show();
     }
 
+    private void showSleepTimerDialog() {
+        final int[] minuteOptions = new int[]{0, 15, 30, 45, 60};
+        final String[] labels = new String[]{
+                "Off",
+                "15 minutes",
+                "30 minutes",
+                "45 minutes",
+                "60 minutes"
+        };
+        int checked = 0;
+        for (int i = 0; i < minuteOptions.length; i++) {
+            if (minuteOptions[i] == sleepTimerMinutes) {
+                checked = i;
+                break;
+            }
+        }
+        AlertDialog.Builder builder = createThemedDialogBuilder();
+        builder.setTitle("Sleep Timer");
+        builder.setSingleChoiceItems(labels, checked, new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                setSleepTimerMinutes(minuteOptions[which]);
+                dialog.dismiss();
+            }
+        });
+        builder.setNegativeButton("Cancel", null);
+        builder.show();
+    }
+
+    private void setSleepTimerMinutes(int minutes) {
+        uiHandler.removeCallbacks(sleepTimerRunnable);
+        sleepTimerMinutes = minutes;
+        sleepFadeMultiplier = 1.0f;
+        if (mediaPlayer != null && isMediaPrepared) {
+            try {
+                mediaPlayer.setVolume(1.0f, 1.0f);
+            } catch (IllegalStateException ignored) {
+            }
+        }
+        if (minutes <= 0) {
+            sleepTimerDeadlineMs = 0L;
+            Toast.makeText(this, "Sleep timer disabled.", Toast.LENGTH_SHORT).show();
+        } else {
+            sleepTimerDeadlineMs = SystemClock.uptimeMillis() + minutes * 60_000L;
+            uiHandler.post(sleepTimerRunnable);
+            Toast.makeText(this, "Sleep timer set for " + minutes + " min.", Toast.LENGTH_SHORT).show();
+        }
+        updateAudioEffectsButtonLabels();
+        updateQueueCounterText();
+    }
+
     private void showCrossfadeDialog() {
         int checked = 0;
         for (int i = 0; i < CROSSFADE_VALUES.length; i++) {
@@ -1348,7 +1527,7 @@ public class MainActivity extends Activity {
     }
 
     private void showNowPlayingDisplayDialog() {
-        final int radius = currentTheme.id == ThemeConfig.THEME_HOLO ? 2 : (currentTheme.id == ThemeConfig.THEME_AERO ? 8 : 6);
+        final int radius = getControlCornerDp(currentTheme);
         int pad = dpToPx(16);
 
         ScrollView scroll = new ScrollView(this);
@@ -1579,6 +1758,56 @@ public class MainActivity extends Activity {
         }
         btnEmptyAction.setText("GRANT AUDIO PERMISSION");
         btnEmptyAction.setVisibility(View.VISIBLE);
+        scheduleDismissStartupSplash();
+    }
+
+    private void scheduleDismissStartupSplash() {
+        if (isStartupSplashDismissed || startupSplashOverlay == null) {
+            return;
+        }
+        long elapsed = SystemClock.uptimeMillis() - startupShownAtMs;
+        long delayMs = Math.max(0L, 900L - elapsed);
+        uiHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                dismissStartupSplash();
+            }
+        }, delayMs);
+    }
+
+    private void dismissStartupSplash() {
+        if (isStartupSplashDismissed || isFinishing() || isDestroyed()) {
+            return;
+        }
+        isStartupSplashDismissed = true;
+        if (!isNowPlayingOpen && !isSettingsOpen) {
+            ActionBar ab = getActionBar();
+            if (ab != null) {
+                ab.show();
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            getWindow().setStatusBarColor(currentTheme.actionBarTop);
+            getWindow().setNavigationBarColor(currentTheme.dockBottom);
+        }
+        if (startupSplashOverlay == null) {
+            return;
+        }
+        startupSplashOverlay.animate()
+                .alpha(0f)
+                .setDuration(420L)
+                .withEndAction(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (startupSplashView != null) {
+                            startupSplashView.stopAnimationLoop();
+                        }
+                        if (startupSplashOverlay != null) {
+                            startupSplashOverlay.setVisibility(View.GONE);
+                        }
+                    }
+                })
+                .start();
     }
 
     private void scanLocalAudioFiles() {
@@ -1600,6 +1829,7 @@ public class MainActivity extends Activity {
                         allSongs.addAll(loaded);
                         applyFiltersAndSort();
                         updateActionBarLabels();
+                        scheduleDismissStartupSplash();
                     }
                 });
             }
@@ -1622,11 +1852,13 @@ public class MainActivity extends Activity {
         List<Song> list = new ArrayList<>();
         String[] projection = new String[]{
                 MediaStore.Audio.Media._ID,
+                MediaStore.Audio.Media.ALBUM_ID,
                 MediaStore.Audio.Media.TITLE,
                 MediaStore.Audio.Media.ARTIST,
                 MediaStore.Audio.Media.ALBUM,
                 MediaStore.Audio.Media.DURATION,
-                MediaStore.Audio.Media.DATE_ADDED
+                MediaStore.Audio.Media.DATE_ADDED,
+                MediaStore.Audio.Media.DATA
         };
 
         Cursor cursor = null;
@@ -1640,19 +1872,23 @@ public class MainActivity extends Activity {
 
             if (cursor != null) {
                 int idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID);
+                int albumIdCol = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM_ID);
                 int titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE);
                 int artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST);
                 int albumCol = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM);
                 int durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION);
                 int dateCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED);
+                int dataCol = cursor.getColumnIndex(MediaStore.Audio.Media.DATA);
 
                 while (cursor.moveToNext()) {
                     long id = cursor.getLong(idCol);
+                    long albumId = albumIdCol >= 0 ? cursor.getLong(albumIdCol) : -1L;
                     String rawTitle = cursor.getString(titleCol);
                     String rawArtist = cursor.getString(artistCol);
                     String rawAlbum = albumCol >= 0 ? cursor.getString(albumCol) : null;
                     long durationMs = cursor.getLong(durationCol);
                     long dateAdded = cursor.getLong(dateCol);
+                    String filePath = dataCol >= 0 ? cursor.getString(dataCol) : null;
 
                     if (durationMs <= 0L) {
                         continue;
@@ -1672,7 +1908,7 @@ public class MainActivity extends Activity {
                             ? "Local Library"
                             : rawAlbum.trim();
 
-                    list.add(new Song(id, cleanTitle, cleanArtist, cleanAlbum, durationMs, dateAdded));
+                    list.add(new Song(id, albumId, cleanTitle, cleanArtist, cleanAlbum, durationMs, dateAdded, filePath));
                 }
             }
         } catch (SecurityException ignored) {
@@ -2419,6 +2655,9 @@ public class MainActivity extends Activity {
                     (OnBackInvokedCallback) backInvokedCallback);
             isBackCallbackRegistered = false;
         }
+        if (startupSplashView != null) {
+            startupSplashView.stopAnimationLoop();
+        }
         uiHandler.removeCallbacksAndMessages(null);
         queryExecutor.shutdownNow();
         artExecutor.shutdownNow();
@@ -2470,6 +2709,7 @@ public class MainActivity extends Activity {
         final String[] options = new String[]{
                 "Play Track",
                 isFav ? "Remove from Favorites" : "Add to Favorites",
+                "Inspect ID3 Metadata",
                 "Edit / Generate Album Art"
         };
 
@@ -2498,11 +2738,106 @@ public class MainActivity extends Activity {
                     saveFavoriteIds();
                     applyFiltersAndSort();
                 } else if (which == 2) {
+                    showTrackMetadataDialog(target);
+                } else if (which == 3) {
                     showAlbumArtEditorDialog(target);
                 }
             }
         });
         builder.setNegativeButton("Cancel", null);
+        builder.show();
+    }
+
+    private void showTrackMetadataDialog(final Song song) {
+        if (song == null) {
+            return;
+        }
+        String formatLabel = "Audio Container";
+        String sampleRateLabel = "Device Native";
+        String bitrateLabel = "Variable / VBR";
+        String channelsLabel = "Stereo (2 ch)";
+        String fileSizeLabel = "Unknown";
+
+        Uri trackUri = ContentUris.withAppendedId(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, song.id);
+        long fileBytes = 0L;
+        if (!song.filePath.isEmpty()) {
+            File f = new File(song.filePath);
+            if (f.exists() && f.length() > 0L) {
+                fileBytes = f.length();
+                if (fileBytes >= 1024L * 1024L) {
+                    fileSizeLabel = String.format(Locale.US, "%.2f MB", fileBytes / (1024.0 * 1024.0));
+                } else {
+                    fileSizeLabel = Math.max(1L, fileBytes / 1024L) + " KB";
+                }
+            }
+        }
+
+        MediaExtractor extractor = new MediaExtractor();
+        try {
+            extractor.setDataSource(this, trackUri, null);
+            for (int i = 0; i < extractor.getTrackCount(); i++) {
+                MediaFormat fmt = extractor.getTrackFormat(i);
+                String mime = fmt.getString(MediaFormat.KEY_MIME);
+                if (mime != null && mime.startsWith("audio/")) {
+                    formatLabel = mime.replace("audio/", "").toUpperCase(Locale.US);
+                    if ("MPEG".equals(formatLabel)) {
+                        formatLabel = "MP3 (MPEG Audio)";
+                    } else if ("MP4A-LATM".equals(formatLabel)) {
+                        formatLabel = "M4A / AAC";
+                    }
+                    if (fmt.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+                        int sr = fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+                        sampleRateLabel = String.format(Locale.US, "%,d Hz (%.1f kHz)", sr, sr / 1000.0);
+                    }
+                    if (fmt.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
+                        int ch = fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+                        channelsLabel = ch == 1 ? "Mono (1 ch)" : (ch == 2 ? "Stereo (2 ch)" : (ch + " ch"));
+                    }
+                    if (fmt.containsKey(MediaFormat.KEY_BIT_RATE)) {
+                        int br = fmt.getInteger(MediaFormat.KEY_BIT_RATE);
+                        if (br > 0) {
+                            bitrateLabel = Math.round(br / 1000.0) + " kbps";
+                        }
+                    } else if (fileBytes > 0L && song.durationMs > 0L) {
+                        long estKbps = Math.round((fileBytes * 8.0) / song.durationMs);
+                        if (estKbps > 0L) {
+                            bitrateLabel = "~" + estKbps + " kbps";
+                        }
+                    }
+                    break;
+                }
+            }
+        } catch (Exception ignored) {
+        } finally {
+            try {
+                extractor.release();
+            } catch (Exception ignored) {
+            }
+        }
+
+        String pathDisplay = !song.filePath.isEmpty() ? song.filePath : trackUri.toString();
+        String details = "Title: " + song.title + "\n"
+                + "Artist: " + song.artist + "\n"
+                + "Album: " + song.album + "\n\n"
+                + "Format: " + formatLabel + "\n"
+                + "Bitrate: " + bitrateLabel + "\n"
+                + "Sample Rate: " + sampleRateLabel + "\n"
+                + "Channels: " + channelsLabel + "\n"
+                + "Duration: " + formatDuration(song.durationMs) + "\n"
+                + "File Size: " + fileSizeLabel + "\n"
+                + "Path: " + pathDisplay;
+
+        AlertDialog.Builder builder = createThemedDialogBuilder();
+        builder.setTitle("ID3 Metadata Inspector");
+        builder.setMessage(details);
+        builder.setNeutralButton("Edit Cover Art", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                showAlbumArtEditorDialog(song);
+            }
+        });
+        builder.setPositiveButton("Close", null);
         builder.show();
     }
 
@@ -2513,12 +2848,14 @@ public class MainActivity extends Activity {
         if (noArtSongIds.contains(songId) && !HoloAlbumArtHelper.hasCustomArt(this, songId)) {
             return;
         }
+        final Song meta = findSongById(songId);
+        final long albumId = meta != null ? meta.albumId : -1L;
         artLoadInFlight.add(songId);
         artExecutor.execute(new Runnable() {
             @Override
             public void run() {
                 final HoloAlbumArtHelper.ArtworkLoadResult result =
-                        HoloAlbumArtHelper.loadTrackArtwork(MainActivity.this, songId, 160);
+                        HoloAlbumArtHelper.loadTrackArtwork(MainActivity.this, songId, albumId, 160);
                 uiHandler.post(new Runnable() {
                     @Override
                     public void run() {
@@ -2562,11 +2899,13 @@ public class MainActivity extends Activity {
                 ivNpArtwork.setColorFilter(null);
                 ivNpArtwork.setImageBitmap(bmp);
                 if (isNowPlayingOpen) {
+                    final Song meta = findSongById(songId);
+                    final long albumId = meta != null ? meta.albumId : -1L;
                     artExecutor.execute(new Runnable() {
                         @Override
                         public void run() {
                             final HoloAlbumArtHelper.ArtworkLoadResult full =
-                                    HoloAlbumArtHelper.loadTrackArtwork(MainActivity.this, songId, 512);
+                                    HoloAlbumArtHelper.loadTrackArtwork(MainActivity.this, songId, albumId, 512);
                             if (full.bitmap != null) {
                                 uiHandler.post(new Runnable() {
                                     @Override
@@ -2622,7 +2961,7 @@ public class MainActivity extends Activity {
                         || noArtSongIds.contains(song.id)
                         || artThumbCache.get(song.id) == null);
 
-        Bitmap existingFull = HoloAlbumArtHelper.loadTrackArtwork(this, song.id, 512).bitmap;
+        Bitmap existingFull = HoloAlbumArtHelper.loadTrackArtwork(this, song.id, song.albumId, 512).bitmap;
         final String defaultSeed = !"Local Library".equals(song.album) ? song.album : song.title;
         if (existingFull == null) {
             activeArtPreviewBitmap = HoloAlbumArtHelper.generateHoloCoverArt(
@@ -2967,7 +3306,7 @@ public class MainActivity extends Activity {
                 @Override
                 public void onClick(View v) {
                     Bitmap full = HoloAlbumArtHelper.loadTrackArtwork(
-                            MainActivity.this, candidate.id, 512).bitmap;
+                            MainActivity.this, candidate.id, candidate.albumId, 512).bitmap;
                     if (full != null) {
                         activeArtPreviewBitmap = full;
                         if (activeArtPreviewView != null) {
@@ -3166,17 +3505,17 @@ public class MainActivity extends Activity {
             if (showListArtwork) {
                 holder.ivArt.setVisibility(View.VISIBLE);
                 holder.ivArt.setBackgroundColor(currentTheme.isLightSurface ? 0xFFD9EEF9 : 0xFF12171D);
+                holder.ivArt.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                holder.ivArt.setColorFilter(null);
                 Bitmap thumb = artThumbCache.get(song.id);
                 if (thumb != null) {
-                    holder.ivArt.setScaleType(ImageView.ScaleType.CENTER_CROP);
-                    holder.ivArt.setColorFilter(null);
                     holder.ivArt.setImageBitmap(thumb);
                 } else {
-                    holder.ivArt.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-                    holder.ivArt.setImageResource(android.R.drawable.ic_media_play);
-                    holder.ivArt.setColorFilter(
-                            corruptedArtSongIds.contains(song.id) ? 0x99FFB300 : currentTheme.accent,
-                            PorterDuff.Mode.SRC_IN);
+                    if (listNotePlaceholderBitmap == null) {
+                        listNotePlaceholderBitmap = ThemeConfig.createMusicNotePlaceholderBitmap(
+                                currentTheme, ThemeConfig.dp(MainActivity.this, 40));
+                    }
+                    holder.ivArt.setImageBitmap(listNotePlaceholderBitmap);
                     loadSongThumbnailAsync(song.id);
                 }
             } else {

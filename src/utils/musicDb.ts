@@ -100,25 +100,67 @@ export async function clearAllTracksFromDb(): Promise<void> {
   });
 }
 
+const PLAYLIST_BACKUP_KEY = 'holo_music_playlists_v1';
+
+function syncPlaylistsToLocalStorage(playlists: PlaylistRecord[]): void {
+  try {
+    localStorage.setItem(PLAYLIST_BACKUP_KEY, JSON.stringify(playlists));
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+function readPlaylistsBackup(): PlaylistRecord[] {
+  try {
+    const raw = localStorage.getItem(PLAYLIST_BACKUP_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as PlaylistRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function loadAllPlaylists(): Promise<PlaylistRecord[]> {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_PLAYLISTS, 'readonly');
-    const req = tx.objectStore(STORE_PLAYLISTS).getAll();
-    req.onsuccess = () => {
-      db.close();
-      const rows = (req.result as PlaylistRecord[]) || [];
-      rows.sort((a, b) => a.createdAt - b.createdAt);
-      resolve(rows);
-    };
-    req.onerror = () => {
-      db.close();
-      reject(req.error || new Error('Failed to read playlists from IndexedDB.'));
-    };
-  });
+  try {
+    const db = await openDb();
+    const idbRows = await new Promise<PlaylistRecord[]>((resolve, reject) => {
+      const tx = db.transaction(STORE_PLAYLISTS, 'readonly');
+      const req = tx.objectStore(STORE_PLAYLISTS).getAll();
+      req.onsuccess = () => {
+        db.close();
+        const rows = (req.result as PlaylistRecord[]) || [];
+        rows.sort((a, b) => a.createdAt - b.createdAt);
+        resolve(rows);
+      };
+      req.onerror = () => {
+        db.close();
+        reject(req.error || new Error('Failed to read playlists from IndexedDB.'));
+      };
+    });
+    if (idbRows.length > 0) {
+      syncPlaylistsToLocalStorage(idbRows);
+      return idbRows;
+    }
+    const backup = readPlaylistsBackup();
+    if (backup.length > 0) {
+      for (const pl of backup) {
+        await savePlaylist(pl);
+      }
+      return backup.sort((a, b) => a.createdAt - b.createdAt);
+    }
+    return idbRows;
+  } catch {
+    return readPlaylistsBackup().sort((a, b) => a.createdAt - b.createdAt);
+  }
 }
 
 export async function savePlaylist(playlist: PlaylistRecord): Promise<void> {
+  const backup = readPlaylistsBackup().filter((p) => p.id !== playlist.id);
+  backup.push(playlist);
+  backup.sort((a, b) => a.createdAt - b.createdAt);
+  syncPlaylistsToLocalStorage(backup);
+
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_PLAYLISTS, 'readwrite');
@@ -135,6 +177,9 @@ export async function savePlaylist(playlist: PlaylistRecord): Promise<void> {
 }
 
 export async function deletePlaylistFromDb(playlistId: string): Promise<void> {
+  const backup = readPlaylistsBackup().filter((p) => p.id !== playlistId);
+  syncPlaylistsToLocalStorage(backup);
+
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_PLAYLISTS, 'readwrite');

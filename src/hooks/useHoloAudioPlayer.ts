@@ -106,7 +106,12 @@ export function useHoloAudioPlayer({
   const wetGainRef = useRef<GainNode | null>(null);
   const convolverRef = useRef<ConvolverNode | null>(null);
   const postFxBusRef = useRef<GainNode | null>(null);
+  const masterGainRef = useRef<GainNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+
+  const [sleepTimerMinutes, setSleepTimerTotalMinutes] = useState<number>(0);
+  const [sleepTimerRemainingSec, setSleepTimerRemainingSec] = useState<number | null>(null);
+  const sleepIntervalRef = useRef<number | null>(null);
 
   const [queue, setQueue] = useState<TrackRecord[]>([]);
   const [queueIndex, setQueueIndex] = useState<number>(-1);
@@ -286,9 +291,12 @@ export function useHoloAudioPlayer({
       dryGain.connect(postFxBus);
       wetGain.connect(postFxBus);
 
+      const masterGain = ctx.createGain();
+      masterGain.gain.value = 1;
+
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.78;
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.8;
 
       const limiter = ctx.createDynamicsCompressor();
       limiter.threshold.value = -2;
@@ -297,7 +305,8 @@ export function useHoloAudioPlayer({
       limiter.attack.value = 0.005;
       limiter.release.value = 0.1;
 
-      postFxBus.connect(analyser);
+      postFxBus.connect(masterGain);
+      masterGain.connect(analyser);
       analyser.connect(limiter);
       limiter.connect(ctx.destination);
 
@@ -309,6 +318,7 @@ export function useHoloAudioPlayer({
       wetGainRef.current = wetGain;
       convolverRef.current = null;
       postFxBusRef.current = postFxBus;
+      masterGainRef.current = masterGain;
       analyserRef.current = analyser;
     }
 
@@ -700,7 +710,70 @@ export function useHoloAudioPlayer({
     setShuffle((prev) => !prev);
   }, []);
 
-  const getAnalyserNode = useCallback(() => analyserRef.current, []);
+  const setSleepTimer = useCallback((minutes: number) => {
+    if (sleepIntervalRef.current !== null) {
+      window.clearInterval(sleepIntervalRef.current);
+      sleepIntervalRef.current = null;
+    }
+    const ctx = audioCtxRef.current;
+    const masterGain = masterGainRef.current;
+    if (ctx && masterGain) {
+      masterGain.gain.cancelScheduledValues(ctx.currentTime);
+      masterGain.gain.setTargetAtTime(1.0, ctx.currentTime, 0.05);
+    }
+
+    const cleanMinutes = minutes > 0 ? Math.round(minutes) : 0;
+    setSleepTimerTotalMinutes(cleanMinutes);
+    if (cleanMinutes === 0) {
+      setSleepTimerRemainingSec(null);
+      return;
+    }
+
+    let remaining = cleanMinutes * 60;
+    setSleepTimerRemainingSec(remaining);
+
+    sleepIntervalRef.current = window.setInterval(() => {
+      remaining -= 1;
+      const liveCtx = audioCtxRef.current;
+      const liveMaster = masterGainRef.current;
+
+      if (remaining > 0 && remaining <= 8 && liveCtx && liveMaster) {
+        const nextLevel = Math.max(0.01, remaining / 8);
+        liveMaster.gain.setTargetAtTime(nextLevel, liveCtx.currentTime, 0.2);
+      }
+
+      if (remaining <= 0) {
+        if (sleepIntervalRef.current !== null) {
+          window.clearInterval(sleepIntervalRef.current);
+          sleepIntervalRef.current = null;
+        }
+        decksRef.current[0]?.pause();
+        decksRef.current[1]?.pause();
+        setIsPlaying(false);
+        setSleepTimerTotalMinutes(0);
+        setSleepTimerRemainingSec(null);
+        if (liveCtx && liveMaster) {
+          liveMaster.gain.cancelScheduledValues(liveCtx.currentTime);
+          liveMaster.gain.setValueAtTime(1.0, liveCtx.currentTime);
+        }
+      } else {
+        setSleepTimerRemainingSec(remaining);
+      }
+    }, 1000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (sleepIntervalRef.current !== null) {
+        window.clearInterval(sleepIntervalRef.current);
+      }
+    };
+  }, []);
+
+  const getAnalyserNode = useCallback(() => {
+    ensureWebAudioGraph();
+    return analyserRef.current;
+  }, [ensureWebAudioGraph]);
 
   const getAudioMotionTarget = useCallback(() => {
     ensureWebAudioGraph();
@@ -720,6 +793,9 @@ export function useHoloAudioPlayer({
     playbackError,
     queueIndex,
     queueLength: queue.length,
+    sleepTimerMinutes,
+    sleepTimerRemainingSec,
+    setSleepTimer,
     playTrackFromList,
     togglePlayPause,
     playNext,

@@ -15,7 +15,9 @@ import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
+import android.os.Build;
 import android.provider.MediaStore;
+import android.util.Size;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -103,6 +105,11 @@ public final class HoloAlbumArtHelper {
     }
 
     public static ArtworkLoadResult loadTrackArtwork(Context context, long songId, int targetPx) {
+        return loadTrackArtwork(context, songId, -1L, targetPx);
+    }
+
+    public static ArtworkLoadResult loadTrackArtwork(
+            Context context, long songId, long albumId, int targetPx) {
         File customFile = getCustomArtFile(context, songId);
         if (customFile.exists() && customFile.length() > 0L) {
             Bitmap customBmp = decodeSampledFile(customFile.getAbsolutePath(), targetPx);
@@ -111,11 +118,24 @@ public final class HoloAlbumArtHelper {
             }
         }
 
+        Uri trackUri = ContentUris.withAppendedId(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, songId);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                int thumbSize = Math.max(96, targetPx);
+                Bitmap qThumb = context.getContentResolver().loadThumbnail(
+                        trackUri, new Size(thumbSize, thumbSize), null);
+                if (qThumb != null) {
+                    return new ArtworkLoadResult(qThumb, false, false);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
         byte[] embeddedBytes = null;
         MediaMetadataRetriever retriever = new MediaMetadataRetriever();
         try {
-            Uri trackUri = ContentUris.withAppendedId(
-                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, songId);
             retriever.setDataSource(context.getApplicationContext(), trackUri);
             embeddedBytes = retriever.getEmbeddedPicture();
         } catch (Exception ignored) {
@@ -134,7 +154,54 @@ public final class HoloAlbumArtHelper {
             return new ArtworkLoadResult(null, false, true);
         }
 
+        if (albumId > 0L) {
+            Bitmap albumBmp = decodeAlbumArtUri(context, albumId, targetPx);
+            if (albumBmp != null) {
+                return new ArtworkLoadResult(albumBmp, false, false);
+            }
+        }
+
         return new ArtworkLoadResult(null, false, false);
+    }
+
+    private static Bitmap decodeAlbumArtUri(Context context, long albumId, int targetPx) {
+        Uri albumArtUri = ContentUris.withAppendedId(
+                Uri.parse("content://media/external/audio/albumart"), albumId);
+        ContentResolver resolver = context.getContentResolver();
+        InputStream boundsStream = null;
+        BitmapFactory.Options opts = new BitmapFactory.Options();
+        opts.inJustDecodeBounds = true;
+        try {
+            boundsStream = resolver.openInputStream(albumArtUri);
+            if (boundsStream == null) {
+                return null;
+            }
+            BitmapFactory.decodeStream(boundsStream, null, opts);
+        } catch (Exception e) {
+            return null;
+        } finally {
+            closeQuietly(boundsStream);
+        }
+
+        if (opts.outWidth <= 0 || opts.outHeight <= 0) {
+            return null;
+        }
+
+        opts.inSampleSize = computeInSampleSize(opts.outWidth, opts.outHeight, targetPx, targetPx);
+        opts.inJustDecodeBounds = false;
+
+        InputStream decodeStream = null;
+        try {
+            decodeStream = resolver.openInputStream(albumArtUri);
+            if (decodeStream == null) {
+                return null;
+            }
+            return BitmapFactory.decodeStream(decodeStream, null, opts);
+        } catch (Exception e) {
+            return null;
+        } finally {
+            closeQuietly(decodeStream);
+        }
     }
 
     public static Bitmap decodeAndCropFromUri(Context context, Uri uri, int outputSizePx) {

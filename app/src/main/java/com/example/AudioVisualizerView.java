@@ -38,6 +38,8 @@ public class AudioVisualizerView extends View {
 
     private final float[] smoothBins = new float[BAND_COUNT];
     private final float[] peaks = new float[BAND_COUNT];
+    private final float[] peakVel = new float[BAND_COUNT];
+    private final float[] peakHold = new float[BAND_COUNT];
     private float smoothBass = 0f;
     private float smoothMid = 0f;
     private float phase = 0f;
@@ -49,9 +51,12 @@ public class AudioVisualizerView extends View {
     private final Path wavePath = new Path();
     private final Path linePath = new Path();
     private final Path mirrorPath = new Path();
+    private final Path roundedBarPath = new Path();
+    private final RectF workRect = new RectF();
 
     private LinearGradient cachedBgShader;
     private LinearGradient cachedBarShader;
+    private LinearGradient cachedReflectionShader;
     private int cachedW = -1;
     private int cachedH = -1;
     private int cachedThemeId = -1;
@@ -106,17 +111,27 @@ public class AudioVisualizerView extends View {
 
     private void ensureShaders(int w, int h) {
         if (cachedW == w && cachedH == h && cachedThemeId == theme.id
-                && cachedBgShader != null && cachedBarShader != null) {
+                && cachedBgShader != null && cachedBarShader != null && cachedReflectionShader != null) {
             return;
         }
         int bgTop = theme.id == ThemeConfig.THEME_AERO
                 ? 0xFFEEFAFF
-                : (theme.id == ThemeConfig.THEME_SKEUOMORPHIC ? 0xFF101215 : 0xFF000000);
+                : (theme.id == ThemeConfig.THEME_SKEUOMORPHIC ? 0xFF0C0E11 : 0xFF020508);
         int bgBottom = theme.id == ThemeConfig.THEME_AERO
-                ? 0xFFD9F7EC
-                : (theme.id == ThemeConfig.THEME_SKEUOMORPHIC ? 0xFF181B20 : 0xFF070B0E);
+                ? 0xFFCEF6E9
+                : (theme.id == ThemeConfig.THEME_SKEUOMORPHIC ? 0xFF16191F : 0xFF071219);
+        float baselineY = h * 0.73f;
         cachedBgShader = new LinearGradient(0f, 0f, 0f, h, bgTop, bgBottom, Shader.TileMode.CLAMP);
-        cachedBarShader = new LinearGradient(0f, 0f, 0f, h, theme.accentSecondary, theme.accent, Shader.TileMode.CLAMP);
+        cachedBarShader = new LinearGradient(
+                0f, 12f, 0f, baselineY,
+                new int[]{theme.accentSecondary, withAlpha(theme.accent, 195), withAlpha(theme.accent, 18)},
+                new float[]{0f, 0.55f, 1f},
+                Shader.TileMode.CLAMP);
+        cachedReflectionShader = new LinearGradient(
+                0f, baselineY, 0f, h,
+                withAlpha(theme.accent, 92),
+                withAlpha(theme.accent, 0),
+                Shader.TileMode.CLAMP);
         cachedW = w;
         cachedH = h;
         cachedThemeId = theme.id;
@@ -142,17 +157,24 @@ public class AudioVisualizerView extends View {
         for (int i = 0; i < BAND_COUNT; i++) {
             float raw = 0f;
             if (playing) {
-                float w1 = (float) Math.sin(phase * 2.4f + i * 0.44f + songPhase);
-                float w2 = (float) Math.cos(phase * 3.8f - i * 0.29f + songPhase * 0.5f);
-                float pulse = (float) Math.pow(Math.max(0f, Math.sin(phase * 1.9f + songPhase)), 2.0);
+                float w1 = (float) Math.sin(phase * 2.1f + i * 0.41f + songPhase);
+                float w2 = (float) Math.cos(phase * 3.2f - i * 0.27f + songPhase * 0.5f);
+                float pulse = (float) Math.pow(Math.max(0f, Math.sin(phase * 1.7f + songPhase)), 2.0);
                 float tilt = 1.0f - (i / (float) BAND_COUNT) * 0.34f;
                 raw = Math.max(0.06f, Math.min(1f, (0.28f + 0.28f * w1 + 0.18f * w2 + 0.30f * pulse) * tilt));
             }
-            smoothBins[i] += (raw - smoothBins[i]) * Math.min(1f, dt * 11f);
-            if (smoothBins[i] > peaks[i]) {
+            float rate = raw > smoothBins[i] ? 18f : 9f;
+            float alpha = 1f - (float) Math.exp(-rate * dt);
+            smoothBins[i] += (raw - smoothBins[i]) * alpha;
+            if (smoothBins[i] >= peaks[i]) {
                 peaks[i] = smoothBins[i];
+                peakVel[i] = 0f;
+                peakHold[i] = 0.18f;
+            } else if (peakHold[i] > 0f) {
+                peakHold[i] -= dt;
             } else {
-                peaks[i] = Math.max(0f, peaks[i] - dt * 0.42f);
+                peakVel[i] += 2.4f * dt;
+                peaks[i] = Math.max(smoothBins[i], peaks[i] - peakVel[i] * dt);
             }
             if (i < 6) {
                 bassSum += smoothBins[i];
@@ -162,7 +184,7 @@ public class AudioVisualizerView extends View {
         }
         smoothBass += ((bassSum / 6f) - smoothBass) * Math.min(1f, dt * 10f);
         smoothMid += ((midSum / 10f) - smoothMid) * Math.min(1f, dt * 10f);
-        phase += dt * (playing ? (1.55f + smoothBass * 2.0f) : 0.3f);
+        phase += dt * (playing ? (1.45f + smoothBass * 1.8f) : 0.25f);
 
         ensureShaders(w, h);
         fillPaint.setShader(cachedBgShader);
@@ -198,7 +220,7 @@ public class AudioVisualizerView extends View {
     }
 
     private void drawWaterReflexMode(Canvas canvas, int w, int h, float density, int gridColor) {
-        float horizonY = h * 0.62f;
+        float horizonY = h * 0.68f;
         gridPaint.setColor(gridColor);
         gridPaint.setStrokeWidth(Math.max(1f, density));
         canvas.drawLine(0f, horizonY, w, horizonY, gridPaint);
@@ -214,7 +236,7 @@ public class AudioVisualizerView extends View {
             float x = (i / (float) (BAND_COUNT - 1)) * w;
             float amp = smoothBins[i] * (horizonY * 0.78f);
             float yTop = horizonY - amp;
-            float yReflect = horizonY + amp * 0.48f;
+            float yReflect = horizonY + amp * 0.42f;
 
             wavePath.lineTo(x, yTop);
             mirrorPath.lineTo(x, yReflect);
@@ -230,43 +252,77 @@ public class AudioVisualizerView extends View {
         mirrorPath.lineTo(w, horizonY);
         mirrorPath.close();
 
-        fillPaint.setColor(withAlpha(theme.accent, 118));
+        fillPaint.setShader(cachedBarShader);
         canvas.drawPath(wavePath, fillPaint);
 
-        fillPaint.setColor(withAlpha(theme.accentSecondary, 68));
+        fillPaint.setShader(cachedReflectionShader);
         canvas.drawPath(mirrorPath, fillPaint);
+        fillPaint.setShader(null);
 
         strokePaint.setColor(theme.accentSecondary);
         strokePaint.setStrokeWidth(2f * density);
         canvas.drawPath(linePath, strokePaint);
     }
 
+    private void drawRoundedTopBar(Canvas canvas, float left, float top, float right, float bottom, float r) {
+        if (bottom - top <= 0.5f || right - left <= 0.5f) {
+            return;
+        }
+        float rad = Math.min(r, Math.min((right - left) * 0.5f, bottom - top));
+        roundedBarPath.reset();
+        roundedBarPath.moveTo(left, bottom);
+        roundedBarPath.lineTo(left, top + rad);
+        roundedBarPath.quadTo(left, top, left + rad, top);
+        roundedBarPath.lineTo(right - rad, top);
+        roundedBarPath.quadTo(right, top, right, top + rad);
+        roundedBarPath.lineTo(right, bottom);
+        roundedBarPath.close();
+        canvas.drawPath(roundedBarPath, fillPaint);
+    }
+
     private void drawLedBarsMode(Canvas canvas, int w, int h, float density) {
         float padX = 12f * density;
-        float padY = 14f * density;
+        float baselineY = h * 0.73f;
         float usableW = w - padX * 2f;
-        float usableH = h - padY * 2f;
+        float usableH = Math.max(24f, baselineY - 14f * density);
+        float maxReflH = Math.max(12f, h - baselineY - 6f * density);
         float slotW = usableW / BAND_COUNT;
-        float barW = Math.max(2f * density, slotW * 0.66f);
+        float barW = Math.max(3f * density, slotW * 0.64f);
+        float radius = Math.min(5f * density, barW * 0.5f);
 
-        int rows = 14;
-        float rowGap = 2f * density;
-        float segH = Math.max(2f * density, (usableH - rowGap * (rows - 1)) / rows);
+        gridPaint.setColor(withAlpha(theme.accent, 96));
+        gridPaint.setStrokeWidth(Math.max(1f, density));
+        canvas.drawLine(padX, baselineY, w - padX, baselineY, gridPaint);
+
+        int capColor = theme.isLightSurface ? theme.textPrimary : 0xFFC8F3FF;
+        if (theme.id == ThemeConfig.THEME_SKEUOMORPHIC) {
+            capColor = 0xFFFFE2A8;
+        }
 
         for (int i = 0; i < BAND_COUNT; i++) {
-            int litRows = Math.round(smoothBins[i] * rows);
-            int peakRow = Math.min(rows - 1, Math.round(peaks[i] * rows));
+            float barH = Math.max(3f * density, smoothBins[i] * usableH);
             float x = padX + i * slotW + (slotW - barW) * 0.5f;
+            float topY = baselineY - barH;
 
-            for (int r = 0; r < rows; r++) {
-                float yTop = h - padY - (r + 1) * segH - r * rowGap;
-                boolean isLit = r < litRows || (playing && r == peakRow);
-                if (isLit) {
-                    fillPaint.setColor(r >= rows - 3 ? theme.accentSecondary : theme.accent);
-                } else {
-                    fillPaint.setColor(withAlpha(theme.accent, 28));
-                }
-                canvas.drawRect(x, yTop, x + barW, yTop + segH, fillPaint);
+            fillPaint.setShader(cachedBarShader);
+            drawRoundedTopBar(canvas, x, topY, x + barW, baselineY, radius);
+
+            // Gravity peak-decay indicator floating above the bar
+            float peakY = baselineY - Math.max(barH, peaks[i] * usableH) - 4f * density;
+            fillPaint.setShader(null);
+            if (peaks[i] > 0.02f && peakY >= 4f) {
+                fillPaint.setColor(capColor);
+                workRect.set(x, peakY, x + barW, peakY + 2f * density);
+                canvas.drawRoundRect(workRect, density, density, fillPaint);
+            }
+
+            // Subtle baseline mirror reflection
+            float reflH = Math.min(maxReflH, barH * 0.36f);
+            if (reflH > 2f) {
+                fillPaint.setShader(cachedReflectionShader);
+                workRect.set(x, baselineY + 2f, x + barW, baselineY + 2f + reflH);
+                canvas.drawRoundRect(workRect, radius, radius, fillPaint);
+                fillPaint.setShader(null);
             }
         }
     }
@@ -274,32 +330,43 @@ public class AudioVisualizerView extends View {
     private void drawOctaveMode(Canvas canvas, int w, int h, float density, int gridColor) {
         gridPaint.setColor(gridColor);
         gridPaint.setStrokeWidth(Math.max(1f, density * 0.8f));
-        for (int row = 1; row <= 4; row++) {
-            float gy = (h / 5f) * row;
+        for (int row = 1; row <= 3; row++) {
+            float gy = (h * 0.72f / 4f) * row;
             canvas.drawLine(0f, gy, w, gy, gridPaint);
         }
 
         float padX = 12f * density;
-        float padBottom = 14f * density;
-        float padTop = 16f * density;
+        float baselineY = h * 0.73f;
         float usableW = w - padX * 2f;
-        float usableH = h - padBottom - padTop;
+        float usableH = Math.max(24f, baselineY - 14f * density);
+        float maxReflH = Math.max(12f, h - baselineY - 6f * density);
         float slotW = usableW / BAND_COUNT;
-        float barW = Math.max(2f * density, slotW * 0.7f);
+        float barW = Math.max(3f * density, slotW * 0.72f);
+        float radius = Math.min(5f * density, barW * 0.5f);
 
-        fillPaint.setShader(cachedBarShader);
+        gridPaint.setColor(withAlpha(theme.accent, 96));
+        canvas.drawLine(padX, baselineY, w - padX, baselineY, gridPaint);
+
         for (int i = 0; i < BAND_COUNT; i++) {
-            float barH = Math.max(2f * density, smoothBins[i] * usableH);
+            float barH = Math.max(3f * density, smoothBins[i] * usableH);
             float x = padX + i * slotW + (slotW - barW) * 0.5f;
-            float y = h - padBottom - barH;
-            canvas.drawRect(x, y, x + barW, h - padBottom, fillPaint);
+            float y = baselineY - barH;
+            fillPaint.setShader(cachedBarShader);
+            drawRoundedTopBar(canvas, x, y, x + barW, baselineY, radius);
+
+            float reflH = Math.min(maxReflH, barH * 0.34f);
+            if (reflH > 2f) {
+                fillPaint.setShader(cachedReflectionShader);
+                workRect.set(x, baselineY + 2f, x + barW, baselineY + 2f + reflH);
+                canvas.drawRoundRect(workRect, radius, radius, fillPaint);
+            }
         }
         fillPaint.setShader(null);
 
         fillPaint.setColor(theme.isLightSurface ? theme.textPrimary : 0xFFE8FAFF);
         for (int i = 0; i < BAND_COUNT; i++) {
             float x = padX + i * slotW + (slotW - barW) * 0.5f;
-            float peakY = h - padBottom - Math.max(2f * density, peaks[i] * usableH) - 3f * density;
+            float peakY = baselineY - Math.max(3f * density, peaks[i] * usableH) - 4f * density;
             canvas.drawRect(x, peakY, x + barW, peakY + 2f * density, fillPaint);
         }
     }

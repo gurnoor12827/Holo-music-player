@@ -17,13 +17,13 @@ export const THEME_OPTIONS: ThemeDefinition[] = [
   {
     id: 'aero',
     label: 'Frutiger Aero',
-    summary: 'Glossy sky-to-aqua #0078D7/#5CE65C gradients, white inner highlights, gel buttons',
+    summary: 'Aqua-to-mint #0078D7/#5CE65C sky gradients, light rays, bokeh glass & glossy pill buttons',
     swatches: ['#EAF7FD', '#0078D7', '#5CE65C'],
   },
   {
     id: 'skeuomorphic',
     label: 'Skeuomorphic',
-    summary: 'Brushed dark metal, recessed groove track, 3D beveled controls, #FF9F1C amber LED',
+    summary: 'Brushed dark metal, stitched leather panels, 3D beveled hardware, #FF9F1C vacuum-tube amber',
     swatches: ['#1F2227', '#353941', '#FF9F1C'],
   },
 ];

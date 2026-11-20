@@ -46,8 +46,13 @@ export interface TrackRecord {
   album: string;
   durationSec: number;
   fileName: string;
+  filePath?: string;
   fileSize: number;
   mimeType: string;
+  audioFormat?: string;
+  bitrateKbps?: number;
+  sampleRateHz?: number;
+  channels?: number;
   artworkDataUrl: string | null;
   addedAt: number;
   blob: Blob;

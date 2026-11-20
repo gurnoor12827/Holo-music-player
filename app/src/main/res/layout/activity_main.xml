@@ -667,6 +667,15 @@
                     android:textSize="13sp"
                     android:textStyle="bold" />
 
+                <Button
+                    android:id="@+id/btn_settings_sleep"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/settings_sleep_prefix"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
                 <View
                     android:id="@+id/divider_settings_about"
                     android:layout_width="match_parent"
@@ -710,5 +719,22 @@
             </LinearLayout>
         </ScrollView>
     </LinearLayout>
+
+    <!-- Pitch-Black Startup Splash Screen Overlay -->
+    <FrameLayout
+        android:id="@+id/startup_splash_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#000000"
+        android:clickable="true"
+        android:elevation="24dp"
+        android:focusable="true">
+
+        <com.example.StartupSplashView
+            android:id="@+id/startup_splash_view"
+            android:layout_width="210dp"
+            android:layout_height="210dp"
+            android:layout_gravity="center" />
+    </FrameLayout>
 
 </FrameLayout>
